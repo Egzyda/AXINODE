@@ -1,0 +1,341 @@
+import type { TechnologyDefinition } from '@/types'
+
+export const TECHNOLOGIES: TechnologyDefinition[] = [
+  // Agriculture Tree
+  {
+    id: 'irrigation',
+    name: '灌漑',
+    description: '農場の効率を向上させる基本的な農業技術',
+    tier: 1,
+    category: 'agriculture',
+    cost: { gold: 200 },
+    researchTime: 60,
+    effect: { type: 'farmEfficiency', value: 30 },
+  },
+  {
+    id: 'crop_rotation',
+    name: '輪作',
+    description: '土地の生産性を高める農法',
+    tier: 2,
+    category: 'agriculture',
+    cost: { gold: 500 },
+    researchTime: 90,
+    prerequisite: ['irrigation'],
+    effect: { type: 'farmEfficiency', value: 50 },
+  },
+  {
+    id: 'selective_breeding',
+    name: '品種改良',
+    description: '作物の品種を改良して収穫量を増加',
+    tier: 3,
+    category: 'agriculture',
+    cost: { gold: 1200 },
+    researchTime: 120,
+    prerequisite: ['crop_rotation'],
+    effect: { type: 'farmEfficiency', value: 100 },
+  },
+  {
+    id: 'genetic_engineering',
+    name: '遺伝子工学',
+    description: '最先端の農業技術で生産性を飛躍的に向上',
+    tier: 4,
+    category: 'agriculture',
+    cost: { gold: 3000 },
+    researchTime: 180,
+    prerequisite: ['selective_breeding', 'research_lab'],
+    effect: { type: 'farmEfficiency', value: 200 },
+  },
+
+  // Military Tree
+  {
+    id: 'archery',
+    name: '弓術',
+    description: '弓兵の戦闘力を向上させる',
+    tier: 1,
+    category: 'military',
+    cost: { gold: 200 },
+    researchTime: 60,
+    effect: { type: 'archerPower', value: 30 },
+  },
+  {
+    id: 'metallurgy',
+    name: '冶金術',
+    description: '武器と鎧の生産効率を向上',
+    tier: 1,
+    category: 'military',
+    cost: { gold: 300 },
+    researchTime: 90,
+    effect: { type: 'weaponProduction', value: 20 },
+  },
+  {
+    id: 'spearman_training',
+    name: '槍兵訓練',
+    description: '槍兵ユニットを解放',
+    tier: 2,
+    category: 'military',
+    cost: { gold: 400 },
+    researchTime: 90,
+    prerequisite: ['metallurgy'],
+    effect: { type: 'unlockUnit', value: 1 },
+  },
+  {
+    id: 'gunpowder',
+    name: '火薬',
+    description: '銃兵と大砲ユニットを解放、攻城戦闘力向上',
+    tier: 2,
+    category: 'military',
+    cost: { gold: 800 },
+    researchTime: 120,
+    prerequisite: ['metallurgy'],
+    effect: { type: 'siegePower', value: 30 },
+  },
+  {
+    id: 'cavalry',
+    name: '騎兵',
+    description: '騎兵ユニットを解放',
+    tier: 2,
+    category: 'military',
+    cost: { gold: 600 },
+    researchTime: 90,
+    prerequisite: ['metallurgy'],
+    effect: { type: 'unlockUnit', value: 1 },
+  },
+  {
+    id: 'musketeer',
+    name: '銃兵',
+    description: '銃兵ユニットの性能向上',
+    tier: 3,
+    category: 'military',
+    cost: { gold: 1500 },
+    researchTime: 150,
+    prerequisite: ['gunpowder', 'archery'],
+    effect: { type: 'gunnerPower', value: 50 },
+  },
+  {
+    id: 'machine_gun',
+    name: '機関銃',
+    description: '機関銃ユニットを解放、戦闘力大幅向上',
+    tier: 4,
+    category: 'military',
+    cost: { gold: 3000 },
+    researchTime: 180,
+    prerequisite: ['musketeer', 'industrialization'],
+    effect: { type: 'combatPower', value: 100 },
+  },
+  {
+    id: 'tanks',
+    name: '戦車',
+    description: '戦車ユニットを解放',
+    tier: 4,
+    category: 'military',
+    cost: { gold: 5000 },
+    researchTime: 180,
+    prerequisite: ['machine_gun', 'cavalry'],
+    effect: { type: 'combatPower', value: 200 },
+  },
+
+  // Magic Tree
+  {
+    id: 'magic_theory',
+    name: '魔法理論',
+    description: '魔法塔の建設を可能にする',
+    tier: 1,
+    category: 'magic',
+    cost: { gold: 1000 },
+    researchTime: 150,
+    effect: { type: 'unlockBuilding', value: 1 },
+  },
+  {
+    id: 'elemental_magic',
+    name: '元素魔法',
+    description: '戦闘魔法（ファイアボール、ライトニング）を使用可能に',
+    tier: 2,
+    category: 'magic',
+    cost: { gold: 1500, mana: 50 },
+    researchTime: 150,
+    prerequisite: ['magic_theory'],
+    effect: { type: 'unlockSpell', value: 2 },
+  },
+  {
+    id: 'summoning_magic',
+    name: '召喚魔法',
+    description: '魔導兵の雇用とドラゴン召喚を可能に',
+    tier: 3,
+    category: 'magic',
+    cost: { gold: 2500, mana: 100 },
+    researchTime: 180,
+    prerequisite: ['elemental_magic'],
+    effect: { type: 'unlockUnit', value: 1 },
+  },
+  {
+    id: 'spacetime_magic',
+    name: '時空魔法',
+    description: 'テレポートと時間加速魔法を使用可能に',
+    tier: 3,
+    category: 'magic',
+    cost: { gold: 3000, mana: 150 },
+    researchTime: 180,
+    prerequisite: ['elemental_magic'],
+    effect: { type: 'unlockSpell', value: 2 },
+  },
+  {
+    id: 'dimensional_magic',
+    name: '次元魔法',
+    description: '次元門建設を可能に（技術勝利ルート）',
+    tier: 4,
+    category: 'magic',
+    cost: { gold: 10000, mana: 500 },
+    researchTime: 180,
+    prerequisite: ['spacetime_magic', 'orbital_elevator'],
+    effect: { type: 'unlockVictory', value: 1 },
+  },
+
+  // Economy Tree
+  {
+    id: 'trade_network',
+    name: '交易網',
+    description: '税収と交易効率を向上',
+    tier: 1,
+    category: 'economy',
+    cost: { gold: 600 },
+    researchTime: 90,
+    effect: { type: 'taxBonus', value: 10 },
+  },
+  {
+    id: 'banking',
+    name: '銀行',
+    description: '税収を大幅に向上',
+    tier: 2,
+    category: 'economy',
+    cost: { gold: 1200 },
+    researchTime: 120,
+    prerequisite: ['trade_network'],
+    effect: { type: 'taxBonus', value: 20 },
+  },
+  {
+    id: 'stock_market',
+    name: '株式市場',
+    description: '経済システムの効率化',
+    tier: 3,
+    category: 'economy',
+    cost: { gold: 2500 },
+    researchTime: 150,
+    prerequisite: ['banking'],
+    effect: { type: 'taxBonus', value: 50 },
+  },
+  {
+    id: 'global_economy',
+    name: 'グローバル経済',
+    description: '他国からの配当収入と税収大幅向上',
+    tier: 4,
+    category: 'economy',
+    cost: { gold: 5000 },
+    researchTime: 180,
+    prerequisite: ['stock_market'],
+    effect: { type: 'taxBonus', value: 100 },
+  },
+
+  // Industry Tree
+  {
+    id: 'organization',
+    name: '組織化',
+    description: '同時建設2つを可能に',
+    tier: 1,
+    category: 'industry',
+    cost: { gold: 500 },
+    researchTime: 90,
+    effect: { type: 'simultaneousConstruction', value: 2 },
+  },
+  {
+    id: 'industrialization',
+    name: '工業化',
+    description: '同時建設3つを可能に、全生産+30%',
+    tier: 2,
+    category: 'industry',
+    cost: { gold: 1500 },
+    researchTime: 150,
+    prerequisite: ['organization'],
+    effect: { type: 'productionBonus', value: 30 },
+  },
+  {
+    id: 'automation',
+    name: 'オートメーション',
+    description: '全生産+100%',
+    tier: 3,
+    category: 'industry',
+    cost: { gold: 3500 },
+    researchTime: 180,
+    prerequisite: ['industrialization'],
+    effect: { type: 'productionBonus', value: 100 },
+  },
+  {
+    id: 'ai_production',
+    name: 'AI生産',
+    description: '全生産+300%',
+    tier: 4,
+    category: 'industry',
+    cost: { gold: 8000 },
+    researchTime: 180,
+    prerequisite: ['automation', 'research_lab'],
+    effect: { type: 'productionBonus', value: 300 },
+  },
+
+  // Fantasy/Future Tree
+  {
+    id: 'airship',
+    name: '飛空艇',
+    description: '空中戦と高速移動を可能に',
+    tier: 3,
+    category: 'fantasy',
+    cost: { gold: 5000, mana: 200 },
+    researchTime: 180,
+    prerequisite: ['magic_theory', 'industrialization'],
+    effect: { type: 'unlockUnit', value: 1 },
+  },
+  {
+    id: 'orbital_elevator',
+    name: '軌道エレベーター',
+    description: '宇宙進出を可能に、資源生産+50%',
+    tier: 4,
+    category: 'fantasy',
+    cost: { gold: 15000 },
+    researchTime: 180,
+    prerequisite: ['airship', 'ai_production'],
+    effect: { type: 'productionBonus', value: 50 },
+  },
+  {
+    id: 'warp_gate',
+    name: 'ワープゲート',
+    description: '他次元交易を可能に',
+    tier: 4,
+    category: 'fantasy',
+    cost: { gold: 20000, mana: 1000 },
+    researchTime: 180,
+    prerequisite: ['orbital_elevator', 'dimensional_magic'],
+    effect: { type: 'unlockVictory', value: 1 },
+  },
+]
+
+export function getTechnologyById(id: string): TechnologyDefinition | undefined {
+  return TECHNOLOGIES.find(t => t.id === id)
+}
+
+export function getAvailableTechnologies(researchedTechIds: string[]): TechnologyDefinition[] {
+  return TECHNOLOGIES.filter(tech => {
+    // Already researched
+    if (researchedTechIds.includes(tech.id)) return false
+
+    // Check prerequisites
+    if (tech.prerequisite) {
+      return tech.prerequisite.every(prereq => researchedTechIds.includes(prereq))
+    }
+
+    return true
+  })
+}
+
+export function getTechnologiesByCategory(
+  category: TechnologyDefinition['category']
+): TechnologyDefinition[] {
+  return TECHNOLOGIES.filter(t => t.category === category)
+}

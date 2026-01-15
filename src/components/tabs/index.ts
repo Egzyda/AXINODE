@@ -1,0 +1,5 @@
+export * from './DomesticTab'
+export * from './MilitaryTab'
+export * from './DiplomacyTab'
+export * from './TechnologyTab'
+export * from './InfoTab'
