@@ -1,0 +1,54 @@
+/* style.css */
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: dark;
+  /* 文字色: rgba(255, 255, 255, 0.87) */
+  color: #dee2e6; 
+  background-color: #1a1a2e;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow: hidden; /* アプリっぽくスクロールさせない */
+}
+
+/* カスタムスクロールバー (Webkit) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #16213e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #0f3460;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #1a4a7a;
+}
+
+/* 独自ユーティリティクラス（Tailwindで定義されていたもの） */
+.text-gold { color: #ffd700; }
+.text-food { color: #90ee90; }
+.text-ore { color: #b87333; }
+.text-mana { color: #9370db; }
+
+.bg-panel { background-color: #16213e; }
+.bg-panel-dark { background-color: #0f3460; }
+.border-panel { border-color: #1a4a7a; }
+
+/* ログウィンドウのアニメーション用 */
+.transition-height {
+  transition: height 0.3s ease-in-out;
+}

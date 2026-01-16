@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>AXINODE</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <link rel="stylesheet" href="style.css">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              600: '#2563eb', // React版のデフォルトに近い青
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-gray-900 text-white select-none">
+
+  <div id="app" class="flex flex-col h-screen overflow-hidden">
+    
+    <header id="status-bar" class="bg-panel border-b border-panel p-2 flex flex-col gap-2 shrink-0">
+      <div class="text-center text-gray-500 text-xs">Loading status...</div>
+    </header>
+
+    <main id="main-content" class="flex-1 overflow-hidden relative">
+      <div class="p-4 text-center text-gray-400">
+        Initializing Game Engine...
+      </div>
+    </main>
+
+    <div id="log-window" class="bg-panel border-t border-panel flex flex-col transition-height h-24 shrink-0">
+      <div class="flex items-center justify-between px-3 py-2 border-b border-gray-700">
+        <div class="flex items-center gap-2">
+          <span>📰</span>
+          <span class="font-medium text-sm">ログ</span>
+        </div>
+        <button id="log-toggle-btn" class="text-xs text-gray-400 hover:text-white transition-colors">
+          ▼ 展開
+        </button>
+      </div>
+      <div id="log-list" class="flex-1 overflow-y-auto px-3 py-1 font-mono text-sm">
+        </div>
+    </div>
+
+    <nav id="tab-menu" class="bg-panel border-t border-panel flex shrink-0 h-[72px]">
+      </nav>
+
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
