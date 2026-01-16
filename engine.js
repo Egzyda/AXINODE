@@ -1,4 +1,4 @@
-/* engine.js - ゲームの計算ロジックと状態管理 */
+/* engine.js - ゲームの計算ロジックと状態管理（完全版） */
 import { BUILDINGS, TECHNOLOGIES, NATION_TEMPLATES } from './data.js';
 
 // ------------------------------------------------------------------
@@ -7,15 +7,16 @@ import { BUILDINGS, TECHNOLOGIES, NATION_TEMPLATES } from './data.js';
 export const CONSTANTS = {
   DAYS_PER_MONTH: 30,
   // 基礎生産量
-  BASE_FOOD_PRODUCTION: 1,
-  BASE_ORE_PRODUCTION: 0.5,
-  BASE_WEAPON_PRODUCTION: 0.3,
-  BASE_ARMOR_PRODUCTION: 0.2,
+  BASE_FOOD_PRODUCTION: 2.0,      // 農民1人あたり
+  BASE_ORE_PRODUCTION: 0.8,       // 鉱夫1人あたり
+  BASE_WEAPON_PRODUCTION: 0.5,    // 職人1人あたり
+  BASE_ARMOR_PRODUCTION: 0.3,     // 職人1人あたり
+  BASE_MANA_PRODUCTION: 0,        // 魔法塔がないと0
   // 消費量
-  BASE_FOOD_CONSUMPTION_CIVILIAN: 1,
-  BASE_FOOD_CONSUMPTION_SOLDIER: 1.5,
+  BASE_FOOD_CONSUMPTION_CIVILIAN: 0.8,
+  BASE_FOOD_CONSUMPTION_SOLDIER: 1.2,
   // 税収
-  BASE_TAX_PER_POPULATION: 1.2,
+  BASE_TAX_PER_POPULATION: 2.0,
   // 閾値
   SATISFACTION_GROWTH: 70,
   SATISFACTION_DECLINE: 30,
@@ -23,30 +24,31 @@ export const CONSTANTS = {
   GAME_SPEEDS: [1, 2, 5, 10, 20],
   // 初期値
   INITIAL_GOLD: 500,
-  INITIAL_FOOD: 100,
-  INITIAL_POPULATION: 10,
+  INITIAL_FOOD: 150,
+  INITIAL_POPULATION: 15,
   // セーブ関連
   SAVE_KEY: 'axinode_save',
-  AUTOSAVE_INTERVAL: 60000, // 1分
+  AUTOSAVE_INTERVAL: 60000,
+  // 戦闘関連
+  SOLDIER_MAINTENANCE: 3,        // 兵士1人の維持費/月
+  SOLDIER_COMBAT_POWER: 1.0,     // 兵士1人の基本戦闘力
+  // イベント確率
+  EVENT_CHECK_INTERVAL: 0.5,     // イベントチェック間隔（日）
 };
 
 // ------------------------------------------------------------------
 // 2. 計算関数 (Calculations)
 // ------------------------------------------------------------------
-const Calcs = {
+export const Calcs = {
   // 食糧生産
   foodProduction(state) {
     const base = state.population.farmers * CONSTANTS.BASE_FOOD_PRODUCTION;
-
-    // ボーナス計算 (施設 + 技術 + 貿易協定)
     let bonusPercent = 0;
 
-    // 施設ボーナス
     state.buildings.forEach(b => {
       if (b.effect.type === 'foodProduction') bonusPercent += b.effect.value;
     });
 
-    // 技術ボーナス
     state.technologies.forEach(t => {
       if (t.isResearched && t.effect.type === 'farmEfficiency') {
         bonusPercent += t.effect.value;
@@ -56,7 +58,14 @@ const Calcs = {
     // 貿易協定ボーナス
     state.aiNations.forEach(nation => {
       if (nation.treaties.some(t => t.type === 'trade')) {
-        bonusPercent += 5; // 各貿易協定で+5%
+        bonusPercent += 5;
+      }
+    });
+
+    // 工業化ボーナス
+    state.technologies.forEach(t => {
+      if (t.isResearched && t.effect.type === 'productionBonus') {
+        bonusPercent += t.effect.value;
       }
     });
 
@@ -79,6 +88,12 @@ const Calcs = {
       if (b.effect.type === 'oreProduction') bonusPercent += b.effect.value;
     });
 
+    state.technologies.forEach(t => {
+      if (t.isResearched && t.effect.type === 'productionBonus') {
+        bonusPercent += t.effect.value;
+      }
+    });
+
     return base * (1 + bonusPercent / 100);
   },
 
@@ -95,6 +110,11 @@ const Calcs = {
         bonusPercent += t.effect.value;
       }
     });
+    state.technologies.forEach(t => {
+      if (t.isResearched && t.effect.type === 'productionBonus') {
+        bonusPercent += t.effect.value;
+      }
+    });
 
     return base * (1 + bonusPercent / 100);
   },
@@ -108,7 +128,7 @@ const Calcs = {
       if (b.effect.type === 'armorProduction') bonusPercent += b.effect.value;
     });
     state.technologies.forEach(t => {
-      if (t.isResearched && t.effect.type === 'armorProduction') {
+      if (t.isResearched && t.effect.type === 'productionBonus') {
         bonusPercent += t.effect.value;
       }
     });
@@ -116,15 +136,30 @@ const Calcs = {
     return base * (1 + bonusPercent / 100);
   },
 
+  // 魔力生産
+  manaProduction(state) {
+    let mana = 0;
+
+    state.buildings.forEach(b => {
+      if (b.effect.type === 'manaGeneration') {
+        mana += b.effect.value;
+      }
+    });
+
+    return mana;
+  },
+
   // 税収 (月次)
   taxIncome(state) {
     const baseTax = state.population.total * CONSTANTS.BASE_TAX_PER_POPULATION;
     const satisfactionCoef = state.satisfaction / 100;
-    const taxRate = 0.15;
+    const taxRate = state.taxRate || 0.15;
 
     let bonusPercent = 0;
     state.buildings.forEach(b => {
-      if (b.effect.type === 'taxBonus') bonusPercent += b.effect.value;
+      if (b.effect.type === 'taxBonus' || b.effect.type === 'tradeBonus') {
+        bonusPercent += b.effect.value;
+      }
     });
     state.technologies.forEach(t => {
       if (t.isResearched && t.effect.type === 'taxBonus') bonusPercent += t.effect.value;
@@ -133,18 +168,37 @@ const Calcs = {
     return Math.floor(baseTax * satisfactionCoef * taxRate * (1 + bonusPercent / 100));
   },
 
+  // 月次維持費
+  maintenance(state) {
+    const soldierCost = state.military.totalSoldiers * CONSTANTS.SOLDIER_MAINTENANCE;
+    return soldierCost;
+  },
+
   // 満足度計算
   satisfaction(state) {
     let score = 50;
 
+    // 食糧事情
     const consumption = Math.max(1, this.foodConsumption(state));
     const foodDays = state.resources.food / consumption;
 
-    if (foodDays >= 7) score += 20;
-    else if (foodDays >= 3) score += 10;
+    if (foodDays >= 14) score += 25;
+    else if (foodDays >= 7) score += 15;
+    else if (foodDays >= 3) score += 5;
     else if (foodDays < 1) score -= 30;
 
-    return Math.max(0, Math.min(100, score));
+    // 税率の影響
+    const taxRate = state.taxRate || 0.15;
+    if (taxRate > 0.20) score -= 10;
+    if (taxRate > 0.25) score -= 10;
+    if (taxRate < 0.10) score += 5;
+
+    // 失業率の影響
+    const unemploymentRate = state.population.unemployed / Math.max(1, state.population.total);
+    if (unemploymentRate > 0.3) score -= 15;
+    else if (unemploymentRate > 0.2) score -= 5;
+
+    return Math.max(0, Math.min(100, Math.round(score)));
   },
 
   // 同時建設可能数
@@ -165,6 +219,60 @@ const Calcs = {
       if (b.effect.type === 'researchSpeed') bonusPercent += b.effect.value;
     });
     return 1 + bonusPercent / 100;
+  },
+
+  // 装備率計算
+  equipmentRate(state) {
+    const soldiers = state.military.totalSoldiers;
+    if (soldiers === 0) return 100;
+
+    const weapons = state.resources.weapons;
+    const armor = state.resources.armor;
+
+    // 武器と鎧の平均装備率
+    const weaponRate = Math.min(100, (weapons / soldiers) * 100);
+    const armorRate = Math.min(100, (armor / soldiers) * 100);
+
+    return Math.round((weaponRate + armorRate) / 2);
+  },
+
+  // 戦闘力計算
+  combatPower(state, forDefense = false) {
+    const soldiers = state.military.totalSoldiers;
+    const equipRate = this.equipmentRate(state) / 100;
+
+    // 装備係数
+    let equipCoef = 0.5;
+    if (equipRate >= 0.8) equipCoef = 1.0;
+    else if (equipRate >= 0.6) equipCoef = 0.85;
+    else if (equipRate >= 0.4) equipCoef = 0.7;
+
+    // 士気係数
+    const morale = state.military.morale / 100;
+    let moraleCoef = 0.65;
+    if (morale >= 0.8) moraleCoef = 1.0;
+    else if (morale >= 0.6) moraleCoef = 0.85;
+
+    // 技術係数
+    let techCoef = 1.0;
+    state.technologies.forEach(t => {
+      if (t.isResearched) {
+        if (t.effect.type === 'archerPower') techCoef += t.effect.value / 100;
+        if (t.effect.type === 'siegePower' && !forDefense) techCoef += t.effect.value / 100;
+      }
+    });
+
+    // 防御時のボーナス
+    let defenseBonus = 1.0;
+    if (forDefense) {
+      state.buildings.forEach(b => {
+        if (b.effect.type === 'defense') {
+          defenseBonus += b.effect.value / 100;
+        }
+      });
+    }
+
+    return Math.floor(soldiers * CONSTANTS.SOLDIER_COMBAT_POWER * equipCoef * moraleCoef * techCoef * defenseBonus);
   }
 };
 
@@ -177,11 +285,11 @@ export class GameEngine {
     this.lastTime = 0;
     this.listeners = [];
     this.autosaveTimer = null;
+    this.lastEventCheck = 0;
   }
 
   // 初期状態の作成
   createInitialState() {
-    // AI国家の初期化
     const aiNations = NATION_TEMPLATES.map((template, index) => ({
       id: `nation_${index}`,
       name: template.name,
@@ -191,32 +299,36 @@ export class GameEngine {
       militaryPower: template.initialMilitaryPower,
       economicPower: Math.floor(template.initialPopulation * 1.5),
       techLevel: 1,
-      relationWithPlayer: 0, // -100 to 100
+      relationWithPlayer: 0,
       treaties: [],
       isAtWar: false,
       aggressiveness: template.aggressiveness,
       expansionDesire: template.expansionDesire,
+      lastAttackDay: 0,
     }));
+
+    const initialPop = CONSTANTS.INITIAL_POPULATION;
 
     return {
       day: 1,
       gameSpeed: 1,
       isPaused: true,
+      taxRate: 0.15,
       resources: {
         gold: CONSTANTS.INITIAL_GOLD,
         food: CONSTANTS.INITIAL_FOOD,
-        ore: 20,
+        ore: 30,
         mana: 0,
-        weapons: 5,
-        armor: 3  // 鎧リソースを追加
+        weapons: 10,
+        armor: 5
       },
       population: {
-        total: CONSTANTS.INITIAL_POPULATION,
-        farmers: Math.floor(CONSTANTS.INITIAL_POPULATION * 0.5),
-        miners: 0,
-        craftsmen: 0,
-        soldiers: Math.floor(CONSTANTS.INITIAL_POPULATION * 0.2),
-        unemployed: CONSTANTS.INITIAL_POPULATION - Math.floor(CONSTANTS.INITIAL_POPULATION * 0.7)
+        total: initialPop,
+        farmers: Math.floor(initialPop * 0.5),
+        miners: Math.floor(initialPop * 0.1),
+        craftsmen: Math.floor(initialPop * 0.1),
+        soldiers: Math.floor(initialPop * 0.2),
+        unemployed: initialPop - Math.floor(initialPop * 0.9)
       },
       satisfaction: 60,
       buildings: [],
@@ -224,17 +336,29 @@ export class GameEngine {
       technologies: JSON.parse(JSON.stringify(TECHNOLOGIES)),
       researchQueue: [],
       eventLog: [
-        { id: 1, type: 'important', message: '人口1人から国家を築き上げましょう。', day: 1, time: '00:00' }
+        { id: 1, type: 'important', message: '新たな国家の歴史が始まりました。', day: 1, time: '1日' }
       ],
       military: {
-        totalSoldiers: Math.floor(CONSTANTS.INITIAL_POPULATION * 0.2)
+        totalSoldiers: Math.floor(initialPop * 0.2),
+        morale: 70,
+        infantry: Math.floor(initialPop * 0.15),
+        archers: Math.floor(initialPop * 0.05),
+        cavalry: 0
       },
       aiNations: aiNations,
-      reputation: 0 // -100 to 100
+      reputation: 0,
+      currentBattle: null,
+      gameOver: false,
+      gameOverReason: null,
+      victory: false,
+      victoryType: null,
+      bankruptcyDays: 0,
+      lowSatisfactionDays: 0,
+      conqueredNations: 0,
     };
   }
 
-  // 状態更新の購読（UI更新用）
+  // 状態更新の購読
   subscribe(callback) {
     this.listeners.push(callback);
   }
@@ -252,7 +376,6 @@ export class GameEngine {
       return true;
     } catch (e) {
       console.error('セーブに失敗:', e);
-      this.addLog('セーブに失敗しました', 'important');
       return false;
     }
   }
@@ -262,11 +385,8 @@ export class GameEngine {
       const saveData = localStorage.getItem(CONSTANTS.SAVE_KEY);
       if (saveData) {
         const loadedState = JSON.parse(saveData);
-
-        // 新しいプロパティが追加されている場合のマイグレーション
         const defaultState = this.createInitialState();
         this.state = this.migrateState(loadedState, defaultState);
-
         this.addLog('セーブデータをロードしました', 'domestic');
         this.notify();
         return true;
@@ -278,30 +398,54 @@ export class GameEngine {
     }
   }
 
-  // 古いセーブデータに新しいプロパティを追加
   migrateState(loaded, defaultState) {
-    // リソースのマイグレーション
-    if (!loaded.resources.armor) {
-      loaded.resources.armor = defaultState.resources.armor;
-    }
-    // AI国家のマイグレーション
+    // 必要なプロパティの追加
+    const migrations = [
+      'resources.armor', 'taxRate', 'military.morale', 'military.infantry',
+      'military.archers', 'military.cavalry', 'currentBattle', 'gameOver',
+      'gameOverReason', 'victory', 'victoryType', 'bankruptcyDays',
+      'lowSatisfactionDays', 'conqueredNations'
+    ];
+
+    // リソース
+    if (!loaded.resources.armor) loaded.resources.armor = defaultState.resources.armor;
+    if (!loaded.taxRate) loaded.taxRate = defaultState.taxRate;
+
+    // 軍事
+    if (!loaded.military.morale) loaded.military.morale = defaultState.military.morale;
+    if (!loaded.military.infantry) loaded.military.infantry = loaded.military.totalSoldiers;
+    if (!loaded.military.archers) loaded.military.archers = 0;
+    if (!loaded.military.cavalry) loaded.military.cavalry = 0;
+
+    // ゲーム状態
+    if (loaded.currentBattle === undefined) loaded.currentBattle = null;
+    if (loaded.gameOver === undefined) loaded.gameOver = false;
+    if (loaded.gameOverReason === undefined) loaded.gameOverReason = null;
+    if (loaded.victory === undefined) loaded.victory = false;
+    if (loaded.victoryType === undefined) loaded.victoryType = null;
+    if (loaded.bankruptcyDays === undefined) loaded.bankruptcyDays = 0;
+    if (loaded.lowSatisfactionDays === undefined) loaded.lowSatisfactionDays = 0;
+    if (loaded.conqueredNations === undefined) loaded.conqueredNations = 0;
+
+    // AI国家
     if (!loaded.aiNations || loaded.aiNations.length === 0) {
       loaded.aiNations = defaultState.aiNations;
+    } else {
+      loaded.aiNations.forEach(n => {
+        if (n.lastAttackDay === undefined) n.lastAttackDay = 0;
+      });
     }
-    // reputationのマイグレーション
-    if (loaded.reputation === undefined) {
-      loaded.reputation = defaultState.reputation;
-    }
+
+    if (loaded.reputation === undefined) loaded.reputation = 0;
+
     return loaded;
   }
 
   deleteSave() {
     try {
       localStorage.removeItem(CONSTANTS.SAVE_KEY);
-      this.addLog('セーブデータを削除しました', 'important');
       return true;
     } catch (e) {
-      console.error('削除に失敗:', e);
       return false;
     }
   }
@@ -310,11 +454,10 @@ export class GameEngine {
     return localStorage.getItem(CONSTANTS.SAVE_KEY) !== null;
   }
 
-  // オートセーブの開始
   startAutosave() {
     if (this.autosaveTimer) clearInterval(this.autosaveTimer);
     this.autosaveTimer = setInterval(() => {
-      if (!this.state.isPaused) {
+      if (!this.state.isPaused && !this.state.gameOver) {
         this.saveGame();
       }
     }, CONSTANTS.AUTOSAVE_INTERVAL);
@@ -329,7 +472,7 @@ export class GameEngine {
 
   // --- ゲームループ ---
   tick(currentTime) {
-    if (this.state.isPaused) {
+    if (this.state.isPaused || this.state.gameOver || this.state.victory) {
       this.lastTime = currentTime;
       requestAnimationFrame((t) => this.tick(t));
       return;
@@ -345,6 +488,8 @@ export class GameEngine {
     // 日次更新
     if (currentDay > prevDay) {
       this.processDailyUpdate();
+      this.checkRandomEvents();
+      this.checkAIActions();
     }
 
     // 月次更新
@@ -357,6 +502,15 @@ export class GameEngine {
 
     // AI国家の更新
     this.updateAINations(deltaTime * this.state.gameSpeed);
+
+    // 戦闘の進行
+    if (this.state.currentBattle) {
+      this.updateBattle(deltaTime * this.state.gameSpeed);
+    }
+
+    // 勝敗判定
+    this.checkVictoryConditions();
+    this.checkDefeatConditions();
 
     this.notify();
     requestAnimationFrame((t) => this.tick(t));
@@ -374,6 +528,7 @@ export class GameEngine {
     const oreProd = Calcs.oreProduction(this.state);
     const weaponProd = Calcs.weaponProduction(this.state);
     const armorProd = Calcs.armorProduction(this.state);
+    const manaProd = Calcs.manaProduction(this.state);
 
     // 消費
     const foodCons = Calcs.foodConsumption(this.state);
@@ -383,32 +538,50 @@ export class GameEngine {
     this.state.resources.ore += oreProd;
     this.state.resources.weapons += weaponProd;
     this.state.resources.armor += armorProd;
+    this.state.resources.mana += manaProd;
 
     // 餓死判定
     if (this.state.resources.food < 0) {
       this.state.resources.food = 0;
-      this.addLog('食糧不足により住民が苦しんでいます', 'important');
+      const starved = Math.ceil(this.state.population.total * 0.01);
+      this.addPopulation(-starved);
+      this.addLog(`食糧不足で${starved}人が餓死しました`, 'important');
     }
   }
 
   processMonthlyUpdate() {
-    // 税収
+    // 税収と維持費
     const tax = Calcs.taxIncome(this.state);
-    const maintenance = this.state.military.totalSoldiers * 5;
+    const maintenance = Calcs.maintenance(this.state);
 
     this.state.resources.gold += (tax - maintenance);
     this.addLog(`月次収支: 税収+${tax}G, 維持費-${maintenance}G`, 'domestic');
 
+    // 破産判定
+    if (this.state.resources.gold < 0) {
+      this.state.bankruptcyDays += 30;
+      this.addLog('国庫が破産状態です！', 'important');
+    } else {
+      this.state.bankruptcyDays = 0;
+    }
+
     // 満足度更新
     this.state.satisfaction = Calcs.satisfaction(this.state);
 
+    // 満足度による判定
+    if (this.state.satisfaction <= 0) {
+      this.state.lowSatisfactionDays += 30;
+    } else {
+      this.state.lowSatisfactionDays = 0;
+    }
+
     // 人口増減
     if (this.state.satisfaction >= CONSTANTS.SATISFACTION_GROWTH) {
-      const growth = Math.ceil(this.state.population.total * 0.02);
+      const growth = Math.ceil(this.state.population.total * 0.03);
       this.addPopulation(growth);
       this.addLog(`${growth}人の移民が到着しました`, 'domestic');
     } else if (this.state.satisfaction <= CONSTANTS.SATISFACTION_DECLINE) {
-      const decline = Math.ceil(this.state.population.total * 0.01);
+      const decline = Math.ceil(this.state.population.total * 0.02);
       this.addPopulation(-decline);
       this.addLog(`${decline}人が国を去りました`, 'important');
     }
@@ -418,26 +591,25 @@ export class GameEngine {
       nation.treaties = nation.treaties.filter(t => {
         t.duration -= 1;
         if (t.duration <= 0) {
-          this.addLog(`${nation.name}との${t.type === 'trade' ? '貿易協定' : '条約'}が期限切れになりました`, 'diplomatic');
+          this.addLog(`${nation.name}との貿易協定が期限切れになりました`, 'diplomatic');
           return false;
         }
         return true;
       });
     });
 
-    // 破産判定
-    if (this.state.resources.gold < 0) {
-      this.addLog('国庫が破産状態です！', 'important');
+    // 士気の自然回復
+    if (this.state.military.morale < 70) {
+      this.state.military.morale = Math.min(70, this.state.military.morale + 5);
     }
   }
 
   updateProgress(deltaSeconds) {
     // 建設キューの処理
-    const constructionQueue = this.state.constructionQueue;
-    for (let i = constructionQueue.length - 1; i >= 0; i--) {
-      constructionQueue[i].remainingTime -= deltaSeconds;
-      if (constructionQueue[i].remainingTime <= 0) {
-        const completed = constructionQueue.splice(i, 1)[0];
+    for (let i = this.state.constructionQueue.length - 1; i >= 0; i--) {
+      this.state.constructionQueue[i].remainingTime -= deltaSeconds;
+      if (this.state.constructionQueue[i].remainingTime <= 0) {
+        const completed = this.state.constructionQueue.splice(i, 1)[0];
         const buildingData = BUILDINGS.find(b => b.id === completed.buildingId);
 
         this.state.buildings.push({ ...buildingData, builtAt: this.state.day });
@@ -446,36 +618,30 @@ export class GameEngine {
     }
 
     // 研究キューの処理
-    const researchQueue = this.state.researchQueue;
     const speedBonus = Calcs.researchSpeedBonus(this.state);
 
-    for (let i = researchQueue.length - 1; i >= 0; i--) {
-      researchQueue[i].remainingTime -= deltaSeconds * speedBonus;
-      if (researchQueue[i].remainingTime <= 0) {
-        const completed = researchQueue.splice(i, 1)[0];
+    for (let i = this.state.researchQueue.length - 1; i >= 0; i--) {
+      this.state.researchQueue[i].remainingTime -= deltaSeconds * speedBonus;
+      if (this.state.researchQueue[i].remainingTime <= 0) {
+        const completed = this.state.researchQueue.splice(i, 1)[0];
 
-        // 技術を研究済みにする
         const tech = this.state.technologies.find(t => t.id === completed.techId);
         if (tech) {
           tech.isResearched = true;
           this.addLog(`技術「${tech.name}」の研究が完了しました！`, 'tech');
-
-          // 効果の適用（特殊なものはここで処理）
           this.applyTechEffect(tech);
         }
       }
     }
   }
 
-  // 技術効果の適用
   applyTechEffect(tech) {
-    // 特殊効果の処理
     switch (tech.effect.type) {
       case 'unlockBuilding':
         this.addLog(`新しい施設が建設可能になりました`, 'tech');
         break;
       case 'unlockVictory':
-        this.addLog(`勝利条件への道が開かれました！`, 'important');
+        this.addLog(`技術勝利への道が開かれました！`, 'important');
         break;
       case 'simultaneousConstruction':
         this.addLog(`同時建設可能数が ${tech.effect.value} に増加しました`, 'tech');
@@ -483,26 +649,291 @@ export class GameEngine {
       case 'productionBonus':
         this.addLog(`全体の生産効率が ${tech.effect.value}% 向上しました`, 'tech');
         break;
-      // 他の効果はCalcs内で自動的に反映される
     }
   }
 
-  // AI国家の更新
   updateAINations(deltaSeconds) {
     this.state.aiNations.forEach(nation => {
-      // 成長処理（月1%を日割り）
-      const dailyGrowth = 1 + (0.01 / 30) * (deltaSeconds / 10);
+      if (nation.isDefeated) return;
+
+      // 成長処理
+      const dailyGrowth = 1 + (0.005 / 30) * (deltaSeconds / 10);
       nation.population = Math.floor(nation.population * dailyGrowth);
-      nation.militaryPower = Math.floor(nation.population * 0.1);
+      nation.militaryPower = Math.floor(nation.population * 0.12);
       nation.economicPower = Math.floor(nation.population * 1.5);
 
-      // 関係値の自然変動（ごくわずかに中立へ）
+      // 関係値の自然変動
       if (nation.relationWithPlayer > 0) {
-        nation.relationWithPlayer -= 0.001 * deltaSeconds;
+        nation.relationWithPlayer = Math.max(0, nation.relationWithPlayer - 0.001 * deltaSeconds);
       } else if (nation.relationWithPlayer < 0) {
-        nation.relationWithPlayer += 0.001 * deltaSeconds;
+        nation.relationWithPlayer = Math.min(0, nation.relationWithPlayer + 0.0005 * deltaSeconds);
       }
     });
+  }
+
+  // --- ランダムイベント ---
+  checkRandomEvents() {
+    if (Math.random() > 0.15) return; // 15%の確率でイベント発生
+
+    const events = [
+      // ポジティブイベント
+      { type: 'positive', name: '移住者到着', weight: 20, effect: () => {
+        const amount = Math.floor(Math.random() * 10) + 5;
+        this.addPopulation(amount);
+        this.addLog(`${amount}人の移住者が到着しました！`, 'domestic');
+      }},
+      { type: 'positive', name: '豊作', weight: 15, effect: () => {
+        const amount = Math.floor(Math.random() * 100) + 50;
+        this.state.resources.food += amount;
+        this.addLog(`豊作です！食糧+${amount}`, 'domestic');
+      }},
+      { type: 'positive', name: '鉱脈発見', weight: 10, effect: () => {
+        const amount = Math.floor(Math.random() * 50) + 30;
+        this.state.resources.ore += amount;
+        this.addLog(`新しい鉱脈が発見されました！鉱石+${amount}`, 'domestic');
+      }},
+      { type: 'positive', name: '商人来訪', weight: 15, effect: () => {
+        const amount = Math.floor(Math.random() * 100) + 50;
+        this.state.resources.gold += amount;
+        this.addLog(`大商人が訪れ、取引で${amount}Gを得ました`, 'domestic');
+      }},
+      // ネガティブイベント
+      { type: 'negative', name: '干ばつ', weight: 10, condition: () => this.state.day > 15, effect: () => {
+        const loss = Math.floor(this.state.resources.food * 0.2);
+        this.state.resources.food = Math.max(0, this.state.resources.food - loss);
+        this.addLog(`干ばつが発生！食糧-${loss}`, 'important');
+      }},
+      { type: 'negative', name: '山賊襲撃', weight: 12, condition: () => this.state.day > 20, effect: () => {
+        const goldLoss = Math.floor(this.state.resources.gold * 0.1);
+        this.state.resources.gold = Math.max(0, this.state.resources.gold - goldLoss);
+        this.addLog(`山賊に襲撃されました！資金-${goldLoss}G`, 'important');
+      }},
+      { type: 'negative', name: '疫病', weight: 5, condition: () => this.state.day > 30 && this.state.population.total > 30, effect: () => {
+        const loss = Math.ceil(this.state.population.total * 0.05);
+        this.addPopulation(-loss);
+        this.addLog(`疫病が流行し、${loss}人が亡くなりました`, 'important');
+      }},
+    ];
+
+    // 重み付き抽選
+    const availableEvents = events.filter(e => !e.condition || e.condition());
+    const totalWeight = availableEvents.reduce((sum, e) => sum + e.weight, 0);
+    let random = Math.random() * totalWeight;
+
+    for (const event of availableEvents) {
+      random -= event.weight;
+      if (random <= 0) {
+        event.effect();
+        break;
+      }
+    }
+  }
+
+  // --- AI行動 ---
+  checkAIActions() {
+    if (this.state.currentBattle) return;
+
+    this.state.aiNations.forEach(nation => {
+      if (nation.isDefeated || nation.isAtWar) return;
+      if (this.state.day - nation.lastAttackDay < 30) return; // 30日間隔
+
+      // 攻撃判定
+      const playerPower = Calcs.combatPower(this.state, true);
+      const aggressionRoll = Math.random() * 100;
+
+      if (aggressionRoll < nation.aggressiveness * 0.3) {
+        // 弱いと判断したら攻撃
+        if (nation.militaryPower > playerPower * 1.2) {
+          nation.lastAttackDay = this.state.day;
+          this.startBattle(nation.id, true); // 防衛戦
+        }
+      }
+    });
+  }
+
+  // --- 戦闘システム ---
+  startBattle(nationId, isDefense = false) {
+    const nation = this.state.aiNations.find(n => n.id === nationId);
+    if (!nation || nation.isDefeated) return { success: false, message: '対象国家が見つかりません' };
+
+    if (this.state.currentBattle) {
+      return { success: false, message: '既に戦闘中です' };
+    }
+
+    const playerPower = Calcs.combatPower(this.state, isDefense);
+    const enemyPower = nation.militaryPower;
+
+    this.state.currentBattle = {
+      enemyId: nationId,
+      enemyName: nation.name,
+      isDefense: isDefense,
+      playerForces: {
+        initial: this.state.military.totalSoldiers,
+        current: this.state.military.totalSoldiers,
+        power: playerPower,
+        morale: this.state.military.morale
+      },
+      enemyForces: {
+        initial: Math.floor(nation.population * 0.15),
+        current: Math.floor(nation.population * 0.15),
+        power: enemyPower,
+        morale: 70
+      },
+      elapsed: 0,
+      log: [],
+      result: null
+    };
+
+    const battleType = isDefense ? '防衛戦' : '侵攻戦';
+    this.addLog(`${nation.name}との${battleType}が開始されました！`, 'military');
+    this.state.currentBattle.log.push(`戦闘開始: 味方${playerPower} vs 敵${enemyPower}`);
+
+    return { success: true };
+  }
+
+  updateBattle(deltaSeconds) {
+    const battle = this.state.currentBattle;
+    if (!battle || battle.result) return;
+
+    battle.elapsed += deltaSeconds;
+
+    // 10秒ごとに戦闘フェーズを処理
+    if (battle.elapsed >= 1) {
+      battle.elapsed = 0;
+
+      const playerDamage = Math.floor(battle.enemyForces.power * 0.08);
+      const enemyDamage = Math.floor(battle.playerForces.power * 0.10);
+
+      battle.playerForces.current = Math.max(0, battle.playerForces.current - playerDamage);
+      battle.enemyForces.current = Math.max(0, battle.enemyForces.current - enemyDamage);
+
+      // 士気変動
+      if (battle.playerForces.power > battle.enemyForces.power) {
+        battle.playerForces.morale = Math.min(100, battle.playerForces.morale + 2);
+        battle.enemyForces.morale = Math.max(0, battle.enemyForces.morale - 3);
+      } else {
+        battle.playerForces.morale = Math.max(0, battle.playerForces.morale - 3);
+        battle.enemyForces.morale = Math.min(100, battle.enemyForces.morale + 2);
+      }
+
+      // 戦闘力の再計算
+      battle.playerForces.power = Math.floor(battle.playerForces.power * (battle.playerForces.current / Math.max(1, battle.playerForces.initial)));
+      battle.enemyForces.power = Math.floor(battle.enemyForces.power * (battle.enemyForces.current / Math.max(1, battle.enemyForces.initial)));
+
+      battle.log.push(`味方: ${battle.playerForces.current}人 (士気${battle.playerForces.morale}%) | 敵: ${battle.enemyForces.current}人`);
+
+      // 勝敗判定
+      if (battle.enemyForces.current <= battle.enemyForces.initial * 0.3 || battle.enemyForces.morale <= 20) {
+        this.resolveBattle('victory');
+      } else if (battle.playerForces.current <= battle.playerForces.initial * 0.3 || battle.playerForces.morale <= 20) {
+        this.resolveBattle('defeat');
+      }
+    }
+  }
+
+  resolveBattle(result) {
+    const battle = this.state.currentBattle;
+    if (!battle) return;
+
+    battle.result = result;
+    const nation = this.state.aiNations.find(n => n.id === battle.enemyId);
+
+    if (result === 'victory') {
+      const casualties = battle.playerForces.initial - battle.playerForces.current;
+      this.state.military.totalSoldiers -= casualties;
+      this.state.military.infantry = Math.max(0, this.state.military.infantry - casualties);
+      this.state.military.morale = Math.min(100, this.state.military.morale + 10);
+
+      // 戦利品
+      const goldSpoils = Math.floor(nation.economicPower * 0.3);
+      this.state.resources.gold += goldSpoils;
+      this.state.reputation += 5;
+
+      if (!battle.isDefense) {
+        // 侵攻勝利で征服
+        nation.isDefeated = true;
+        this.state.conqueredNations++;
+        this.addLog(`${nation.name}を征服しました！戦利品: ${goldSpoils}G`, 'military');
+      } else {
+        this.addLog(`${nation.name}の侵攻を撃退しました！`, 'military');
+        nation.relationWithPlayer -= 20;
+      }
+    } else {
+      const casualties = Math.floor((battle.playerForces.initial - battle.playerForces.current) * 0.8);
+      this.state.military.totalSoldiers -= casualties;
+      this.state.military.infantry = Math.max(0, this.state.military.infantry - casualties);
+      this.state.military.morale = Math.max(20, this.state.military.morale - 15);
+      this.state.reputation -= 3;
+
+      if (battle.isDefense) {
+        // 防衛失敗でペナルティ
+        const goldLoss = Math.floor(this.state.resources.gold * 0.3);
+        this.state.resources.gold = Math.max(0, this.state.resources.gold - goldLoss);
+        this.addLog(`${nation.name}に敗北しました。${goldLoss}Gを略奪されました`, 'important');
+      } else {
+        this.addLog(`${nation.name}への侵攻に失敗しました`, 'important');
+      }
+    }
+  }
+
+  closeBattle() {
+    this.state.currentBattle = null;
+  }
+
+  // --- 勝敗判定 ---
+  checkVictoryConditions() {
+    // 軍事統一
+    const activeNations = this.state.aiNations.filter(n => !n.isDefeated).length;
+    if (activeNations === 0) {
+      this.state.victory = true;
+      this.state.victoryType = 'military';
+      this.addLog('全国家を征服しました！軍事統一達成！', 'important');
+      return;
+    }
+
+    // 技術勝利
+    const dimMagic = this.state.technologies.find(t => t.id === 'dimensional_magic');
+    if (dimMagic && dimMagic.isResearched && this.state.resources.gold >= 100000) {
+      this.state.victory = true;
+      this.state.victoryType = 'technology';
+      this.addLog('次元門を建設しました！技術勝利達成！', 'important');
+      return;
+    }
+
+    // 経済勝利
+    const allTrade = this.state.aiNations.every(n => n.isDefeated || n.treaties.some(t => t.type === 'trade'));
+    if (this.state.resources.gold >= 50000 && allTrade) {
+      this.state.victory = true;
+      this.state.victoryType = 'economic';
+      this.addLog('経済的覇権を達成しました！経済勝利！', 'important');
+      return;
+    }
+  }
+
+  checkDefeatConditions() {
+    // 人口0
+    if (this.state.population.total <= 0) {
+      this.state.gameOver = true;
+      this.state.gameOverReason = 'population';
+      this.addLog('人口が0になりました。ゲームオーバー...', 'important');
+      return;
+    }
+
+    // 破産30日
+    if (this.state.bankruptcyDays >= 30) {
+      this.state.gameOver = true;
+      this.state.gameOverReason = 'bankruptcy';
+      this.addLog('30日間の破産状態により国家が崩壊しました', 'important');
+      return;
+    }
+
+    // 満足度0が7日
+    if (this.state.lowSatisfactionDays >= 7) {
+      this.state.gameOver = true;
+      this.state.gameOverReason = 'coup';
+      this.addLog('民衆の不満によりクーデターが発生しました', 'important');
+      return;
+    }
   }
 
   // --- アクション ---
@@ -517,14 +948,62 @@ export class GameEngine {
     this.notify();
   }
 
+  setTaxRate(rate) {
+    this.state.taxRate = Math.max(0.05, Math.min(0.30, rate));
+    this.notify();
+  }
+
   addPopulation(amount) {
-    this.state.population.total += amount;
+    this.state.population.total = Math.max(0, this.state.population.total + amount);
     if (amount > 0) {
       this.state.population.unemployed += amount;
     } else {
-      const actualLoss = Math.min(this.state.population.unemployed, Math.abs(amount));
-      this.state.population.unemployed -= actualLoss;
+      // 減少時は無職から優先的に減らす
+      let remaining = Math.abs(amount);
+      const jobs = ['unemployed', 'farmers', 'miners', 'craftsmen'];
+      for (const job of jobs) {
+        const reduce = Math.min(this.state.population[job], remaining);
+        this.state.population[job] -= reduce;
+        remaining -= reduce;
+        if (remaining <= 0) break;
+      }
     }
+  }
+
+  // 職業配分
+  assignPopulation(job, amount) {
+    const currentAssigned = this.state.population.farmers + this.state.population.miners +
+      this.state.population.craftsmen + this.state.population.soldiers;
+    const maxAssignable = this.state.population.total;
+
+    if (job === 'soldiers') {
+      // 兵士への配置は特別処理
+      const change = amount - this.state.population.soldiers;
+      if (change > 0 && this.state.population.unemployed >= change) {
+        this.state.population.soldiers += change;
+        this.state.population.unemployed -= change;
+        this.state.military.totalSoldiers += change;
+        this.state.military.infantry += change;
+      } else if (change < 0) {
+        const release = Math.min(this.state.population.soldiers, Math.abs(change));
+        this.state.population.soldiers -= release;
+        this.state.population.unemployed += release;
+        this.state.military.totalSoldiers -= release;
+        this.state.military.infantry = Math.max(0, this.state.military.infantry - release);
+      }
+    } else {
+      const currentJob = this.state.population[job] || 0;
+      const change = amount - currentJob;
+
+      if (change > 0 && this.state.population.unemployed >= change) {
+        this.state.population[job] = amount;
+        this.state.population.unemployed -= change;
+      } else if (change < 0) {
+        this.state.population[job] = amount;
+        this.state.population.unemployed += Math.abs(change);
+      }
+    }
+    this.notify();
   }
 
   // 建設開始
@@ -532,13 +1011,11 @@ export class GameEngine {
     const building = BUILDINGS.find(b => b.id === buildingId);
     if (!building) return { success: false, message: '建物が見つかりません' };
 
-    // 同時建設数チェック
     const maxSimultaneous = Calcs.maxSimultaneousConstruction(this.state);
     if (this.state.constructionQueue.length >= maxSimultaneous) {
       return { success: false, message: `同時建設は${maxSimultaneous}件までです` };
     }
 
-    // コスト確認
     if (this.state.resources.gold < building.cost.gold) {
       return { success: false, message: '資金が不足しています' };
     }
@@ -546,13 +1023,10 @@ export class GameEngine {
       return { success: false, message: '鉱石が不足しています' };
     }
 
-    // 前提条件チェック
     if (building.prerequisite) {
       const hasPrereq = building.prerequisite.every(prereqId => {
-        // 技術の前提
         const tech = this.state.technologies.find(t => t.id === prereqId);
         if (tech) return tech.isResearched;
-        // 建物の前提
         return this.state.buildings.some(b => b.id === prereqId);
       });
       if (!hasPrereq) {
@@ -560,7 +1034,6 @@ export class GameEngine {
       }
     }
 
-    // 最大数チェック
     if (building.maxCount) {
       const currentCount = this.state.buildings.filter(b => b.id === building.id).length;
       if (currentCount >= building.maxCount) {
@@ -568,7 +1041,6 @@ export class GameEngine {
       }
     }
 
-    // コスト消費
     this.state.resources.gold -= building.cost.gold;
     if (building.cost.ore) this.state.resources.ore -= building.cost.ore;
 
@@ -588,17 +1060,14 @@ export class GameEngine {
     const tech = this.state.technologies.find(t => t.id === techId);
     if (!tech) return { success: false, message: '技術が見つかりません' };
 
-    // 既に研究済みか確認
     if (tech.isResearched) {
       return { success: false, message: '既に研究済みです' };
     }
 
-    // 研究中か確認
     if (this.state.researchQueue.some(r => r.techId === techId)) {
       return { success: false, message: '既に研究中です' };
     }
 
-    // 前提条件チェック
     if (tech.prerequisite) {
       const hasPrereq = tech.prerequisite.every(prereqId => {
         const prereqTech = this.state.technologies.find(t => t.id === prereqId);
@@ -609,7 +1078,6 @@ export class GameEngine {
       }
     }
 
-    // コスト確認
     if (this.state.resources.gold < tech.cost.gold) {
       return { success: false, message: '資金が不足しています' };
     }
@@ -617,7 +1085,6 @@ export class GameEngine {
       return { success: false, message: '魔力が不足しています' };
     }
 
-    // コスト消費
     this.state.resources.gold -= tech.cost.gold;
     if (tech.cost.mana) this.state.resources.mana -= tech.cost.mana;
 
@@ -632,17 +1099,16 @@ export class GameEngine {
     return { success: true };
   }
 
-  // 貿易協定を提案
+  // 貿易協定
   proposeTradeAgreement(nationId) {
     const nation = this.state.aiNations.find(n => n.id === nationId);
     if (!nation) return { success: false, message: '国家が見つかりません' };
+    if (nation.isDefeated) return { success: false, message: 'この国家は既に征服されています' };
 
-    // 既に貿易協定があるか確認
     if (nation.treaties.some(t => t.type === 'trade')) {
       return { success: false, message: '既に貿易協定を結んでいます' };
     }
 
-    // コスト（関係値に応じて変動）
     const baseCost = 200;
     const relationModifier = nation.relationWithPlayer < 0 ? 1.5 : 1.0;
     const cost = Math.floor(baseCost * relationModifier);
@@ -651,20 +1117,17 @@ export class GameEngine {
       return { success: false, message: `資金が不足しています（必要: ${cost}G）` };
     }
 
-    // 成功率（関係値と性格に応じて）
     let successChance = 50 + nation.relationWithPlayer / 2;
     if (nation.personality === 'commercial') successChance += 30;
     if (nation.personality === 'aggressive') successChance -= 20;
     if (nation.personality === 'isolationist') successChance -= 40;
 
-    // コスト消費
     this.state.resources.gold -= cost;
 
-    // 判定
     if (Math.random() * 100 < successChance) {
-      nation.treaties.push({ type: 'trade', duration: 12 }); // 12ヶ月
+      nation.treaties.push({ type: 'trade', duration: 12 });
       nation.relationWithPlayer += 10;
-      this.addLog(`${nation.name}と貿易協定を締結しました！食糧生産+5%`, 'diplomatic');
+      this.addLog(`${nation.name}と貿易協定を締結しました！`, 'diplomatic');
       this.notify();
       return { success: true };
     } else {
@@ -675,7 +1138,20 @@ export class GameEngine {
     }
   }
 
-  // ログ追加ヘルパー
+  // 侵攻開始
+  attackNation(nationId) {
+    const nation = this.state.aiNations.find(n => n.id === nationId);
+    if (!nation) return { success: false, message: '国家が見つかりません' };
+    if (nation.isDefeated) return { success: false, message: 'この国家は既に征服されています' };
+
+    if (this.state.military.totalSoldiers < 10) {
+      return { success: false, message: '最低10人の兵士が必要です' };
+    }
+
+    return this.startBattle(nationId, false);
+  }
+
+  // ログ追加
   addLog(message, type = 'domestic') {
     const time = `${Math.floor(this.state.day)}日`;
     this.state.eventLog.unshift({

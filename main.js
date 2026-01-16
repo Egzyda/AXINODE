@@ -1,8 +1,7 @@
-/* main.js - エントリーポイント */
+/* main.js - エントリーポイント（完全版） */
 import { GameEngine } from './engine.js';
 import { UIManager } from './ui.js';
 
-// グローバルオブジェクトにゲームインスタンスを保持（HTMLからのonclick呼び出し用）
 window.game = {};
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -39,23 +38,23 @@ document.addEventListener('DOMContentLoaded', () => {
   // 7. ゲームループ開始
   engine.startGameLoop();
 
-  // 8. オートセーブの開始（1分ごと）
+  // 8. オートセーブの開始
   engine.startAutosave();
   console.log("オートセーブを有効化しました（1分間隔）");
-  
-  // 開始時はポーズ状態なので、ログを出して誘導
-  if (engine.state.isPaused) {
+
+  // 開始時はポーズ状態
+  if (engine.state.isPaused && !engine.state.gameOver && !engine.state.victory) {
     engine.addLog('「▶️ 再開」ボタンを押して時間を進めてください', 'important');
   }
 
   // 9. ページを離れる前にセーブ
   window.addEventListener('beforeunload', () => {
-    if (!engine.state.isPaused) {
+    if (!engine.state.isPaused && !engine.state.gameOver) {
       engine.saveGame();
     }
   });
 
-  // 10. デバッグ用コマンドをコンソールに公開
+  // 10. デバッグ用コマンド
   window.game.debug = {
     addGold: (amount) => {
       engine.state.resources.gold += amount;
@@ -77,32 +76,68 @@ document.addEventListener('DOMContentLoaded', () => {
       engine.notify();
       console.log(`魔力を ${amount} 追加しました`);
     },
+    addWeapons: (amount) => {
+      engine.state.resources.weapons += amount;
+      engine.notify();
+      console.log(`武器を ${amount} 追加しました`);
+    },
+    addArmor: (amount) => {
+      engine.state.resources.armor += amount;
+      engine.notify();
+      console.log(`鎧を ${amount} 追加しました`);
+    },
     addPopulation: (amount) => {
       engine.addPopulation(amount);
       engine.notify();
       console.log(`人口を ${amount} 追加しました`);
+    },
+    addSoldiers: (amount) => {
+      if (engine.state.population.unemployed >= amount) {
+        engine.assignPopulation('soldiers', engine.state.population.soldiers + amount);
+        console.log(`兵士を ${amount} 追加しました`);
+      } else {
+        console.log('無職の人口が不足しています');
+      }
     },
     skipDays: (days) => {
       engine.state.day += days;
       engine.notify();
       console.log(`${days}日 進めました`);
     },
-    newGame: () => {
-      if (confirm('本当に新しいゲームを開始しますか？セーブデータは削除されます。')) {
-        engine.deleteSave();
-        engine.newGame();
-        console.log('新しいゲームを開始しました');
+    win: (type = 'military') => {
+      engine.state.victory = true;
+      engine.state.victoryType = type;
+      engine.notify();
+      console.log(`${type}勝利を強制発動しました`);
+    },
+    lose: (reason = 'population') => {
+      engine.state.gameOver = true;
+      engine.state.gameOverReason = reason;
+      engine.notify();
+      console.log(`ゲームオーバーを強制発動しました: ${reason}`);
+    },
+    defeatNation: (index = 0) => {
+      if (engine.state.aiNations[index]) {
+        engine.state.aiNations[index].isDefeated = true;
+        engine.notify();
+        console.log(`国家${index}を征服しました`);
       }
     },
-    save: () => {
-      engine.saveGame();
+    newGame: () => {
+      engine.deleteSave();
+      engine.newGame();
+      ui.renderedTab = null;
+      console.log('新しいゲームを開始しました');
     },
+    save: () => engine.saveGame(),
     load: () => {
       engine.loadGame();
+      ui.renderedTab = null;
     },
     state: () => engine.state,
   };
 
-  console.log("AXINODE フェーズ2 起動完了");
+  console.log("AXINODE 完全版 起動完了");
   console.log("デバッグコマンド: window.game.debug.addGold(1000) など");
+  console.log("ヒント: 農民を増やして食糧を確保し、技術研究を進めましょう！");
 });

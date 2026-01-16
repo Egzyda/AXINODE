@@ -1,7 +1,7 @@
-/* ui.js - 画面描画とイベントハンドリング (Refactored) */
+/* ui.js - 画面描画とイベントハンドリング（完全版） */
 import { BUILDINGS, TECHNOLOGIES } from './data.js';
+import { Calcs } from './engine.js';
 
-// ログタイプに応じた色とアイコン
 const LOG_STYLES = {
   important: { color: 'text-red-400', icon: '🚨', bgColor: 'bg-red-900/30' },
   domestic: { color: 'text-green-400', icon: '📈', bgColor: '' },
@@ -41,17 +41,16 @@ export class UIManager {
       logWindow: document.getElementById('log-window'),
     };
 
-    // DOM要素のキャッシュ
     this.domCache = {
       statusBar: null,
       domestic: null,
+      military: null,
       technology: null,
       diplomacy: null,
       info: null,
     };
 
     this.lastLogId = 0;
-
     this.setupGlobalEvents();
   }
 
@@ -64,14 +63,25 @@ export class UIManager {
     });
   }
 
-  // --- メイン描画ループ ---
   render(state) {
+    // 勝敗画面チェック
+    if (state.gameOver || state.victory) {
+      this.renderGameEndScreen(state);
+      return;
+    }
+
+    // 戦闘画面チェック
+    if (state.currentBattle) {
+      this.renderBattleScreen(state);
+      return;
+    }
+
     this.renderStatusBar(state);
     this.renderMainContent(state);
     this.renderLog(state);
   }
 
-  // 1. ステータスバーの描画
+  // --- ステータスバー ---
   renderStatusBar(state) {
     if (!this.domCache.statusBar) {
       this.initStatusBar();
@@ -81,22 +91,26 @@ export class UIManager {
 
   initStatusBar() {
     this.els.statusBar.innerHTML = `
-      <div class="flex flex-wrap items-center gap-3 text-sm">
+      <div class="flex flex-wrap items-center gap-2 text-sm">
         <div class="flex items-center gap-1">
           <span>👑</span><span class="text-gray-400 text-xs">人口:</span>
           <span id="sb-population" class="font-medium text-white">0</span>
         </div>
         <div class="flex items-center gap-1">
-          <span>💰</span><span class="text-gray-400 text-xs">資金:</span>
+          <span>💰</span>
           <span id="sb-gold" class="font-medium">0G</span>
         </div>
         <div class="flex items-center gap-1">
-          <span>🌾</span><span class="text-gray-400 text-xs">食糧:</span>
+          <span>🌾</span>
           <span id="sb-food" class="font-medium">0</span>
         </div>
         <div class="flex items-center gap-1">
-          <span>😊</span><span class="text-gray-400 text-xs">満足:</span>
+          <span>😊</span>
           <span id="sb-satisfaction" class="font-medium">0%</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <span>⚔️</span>
+          <span id="sb-soldiers" class="font-medium text-orange-400">0</span>
         </div>
       </div>
       
@@ -106,15 +120,9 @@ export class UIManager {
           <span id="sb-status" class="text-xs text-gray-500"></span>
         </div>
         <div class="flex gap-1">
-           <button id="btn-pause" class="px-2 py-0.5 rounded text-xs text-white">
-             
-           </button>
-           <button id="btn-speed" class="px-2 py-0.5 rounded text-xs bg-gray-700 text-white">
-             x1
-           </button>
-           <button id="btn-save" class="px-2 py-0.5 rounded text-xs bg-blue-600 text-white">
-             💾
-           </button>
+           <button id="btn-pause" class="px-2 py-0.5 rounded text-xs text-white"></button>
+           <button id="btn-speed" class="px-2 py-0.5 rounded text-xs bg-gray-700 text-white">x1</button>
+           <button id="btn-save" class="px-2 py-0.5 rounded text-xs bg-blue-600 text-white">💾</button>
         </div>
       </div>
     `;
@@ -124,6 +132,7 @@ export class UIManager {
       gold: document.getElementById('sb-gold'),
       food: document.getElementById('sb-food'),
       satisfaction: document.getElementById('sb-satisfaction'),
+      soldiers: document.getElementById('sb-soldiers'),
       day: document.getElementById('sb-day'),
       status: document.getElementById('sb-status'),
       btnPause: document.getElementById('btn-pause'),
@@ -131,55 +140,53 @@ export class UIManager {
       btnSave: document.getElementById('btn-save'),
     };
 
-    // イベント設定（一度だけ）
     this.domCache.statusBar.btnPause.onclick = () => this.engine.togglePause();
     this.domCache.statusBar.btnSpeed.onclick = () => {
       const speeds = [1, 2, 5, 10, 20];
       const nextIdx = (speeds.indexOf(this.engine.state.gameSpeed) + 1) % speeds.length;
       this.engine.setSpeed(speeds[nextIdx]);
     };
-    this.domCache.statusBar.btnSave.onclick = () => this.engine.saveGame();
+    this.domCache.statusBar.btnSave.onclick = () => {
+      if (this.engine.saveGame()) {
+        this.showToast('セーブしました', 'success');
+      }
+    };
   }
 
   updateStatusBar(state) {
     const el = this.domCache.statusBar;
 
-    // 数値更新
     el.population.textContent = state.population.total;
     el.gold.textContent = `${Math.floor(state.resources.gold)}G`;
     el.food.textContent = Math.floor(state.resources.food);
     el.satisfaction.textContent = `${state.satisfaction}%`;
-    // 時間計算 (HH:MM)
+    el.soldiers.textContent = state.military.totalSoldiers;
+
     const totalHours = (state.day % 1) * 24;
     const hours = Math.floor(totalHours);
     const minutes = Math.floor((totalHours % 1) * 60);
     const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-
     el.day.textContent = `${Math.floor(state.day)}日目 ${timeStr}`;
     el.status.textContent = state.isPaused ? '(停止中)' : '進行中';
 
-    // クラス/スタイル更新
     el.gold.className = `font-medium ${state.resources.gold < 0 ? 'text-red-400' : 'text-yellow-400'}`;
-    el.food.className = `font-medium ${state.resources.food < 10 ? 'text-red-400' : 'text-green-400'}`;
+    el.food.className = `font-medium ${state.resources.food < 30 ? 'text-red-400' : 'text-green-400'}`;
 
     const satColor = state.satisfaction < 40 ? 'text-red-400' :
       state.satisfaction < 70 ? 'text-yellow-400' : 'text-green-400';
     el.satisfaction.className = `font-medium ${satColor}`;
 
-    // ボタン更新
     el.btnPause.textContent = state.isPaused ? '▶️ 再開' : '⏸️ 停止';
     el.btnPause.className = `px-2 py-0.5 rounded text-xs ${state.isPaused ? 'bg-green-600' : 'bg-yellow-600'} text-white`;
-
     el.btnSpeed.textContent = `x${state.gameSpeed}`;
   }
 
-
-  // 2. メインコンテンツ（タブの中身）の描画
+  // --- メインコンテンツ ---
   renderMainContent(state) {
-    // タブが変わった場合のみ初期化
     if (this.renderedTab !== this.activeTab) {
       this.els.mainContent.innerHTML = '';
       this.domCache.domestic = null;
+      this.domCache.military = null;
       this.domCache.technology = null;
       this.domCache.diplomacy = null;
       this.domCache.info = null;
@@ -187,6 +194,9 @@ export class UIManager {
       switch (this.activeTab) {
         case 'domestic':
           this.initDomesticTab();
+          break;
+        case 'military':
+          this.initMilitaryTab(state);
           break;
         case 'technology':
           this.initTechnologyTab(state);
@@ -201,47 +211,49 @@ export class UIManager {
           this.els.mainContent.innerHTML = `
             <div class="p-8 text-center text-gray-500">
               <p class="text-xl mb-2">🚧 工事中</p>
-              <p>「${this.activeTab}」タブはまだ実装されていません。</p>
             </div>`;
       }
       this.renderedTab = this.activeTab;
     }
 
-    // 更新処理
     switch (this.activeTab) {
-      case 'domestic':
-        this.updateDomesticTab(state);
-        break;
-      case 'technology':
-        this.updateTechnologyTab(state);
-        break;
-      case 'diplomacy':
-        this.updateDiplomacyTab(state);
-        break;
-      case 'info':
-        this.updateInfoTab(state);
-        break;
+      case 'domestic': this.updateDomesticTab(state); break;
+      case 'military': this.updateMilitaryTab(state); break;
+      case 'technology': this.updateTechnologyTab(state); break;
+      case 'diplomacy': this.updateDiplomacyTab(state); break;
+      case 'info': this.updateInfoTab(state); break;
     }
   }
 
-  // --- 内政タブ (Domestic) ---
+  // --- 内政タブ ---
   initDomesticTab() {
     this.els.mainContent.innerHTML = `
       <div class="p-4 pb-24 overflow-y-auto h-full" id="domestic-container">
-        <h2 class="text-lg font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">内政管理</h2>
+        <h2 class="text-lg font-bold text-gray-200 mb-3 border-b border-gray-700 pb-2">内政管理</h2>
         
+        <!-- 人口配分 -->
         <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
-          <div class="text-sm text-gray-300 mb-2">現在の人口構成</div>
-          <div class="grid grid-cols-3 gap-2 text-xs" id="dom-pop-list">
-             <!-- JSで更新 -->
-          </div>
+          <div class="text-sm text-gray-300 mb-2">人口配分 (総人口: <span id="dom-total-pop">0</span>人)</div>
+          <div class="space-y-2" id="dom-pop-sliders"></div>
         </div>
 
+        <!-- 税率 -->
+        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
+          <div class="flex justify-between items-center">
+            <span class="text-sm text-gray-300">税率: <span id="dom-tax-rate">15</span>%</span>
+            <div class="flex items-center gap-2">
+              <button id="btn-tax-down" class="px-2 py-1 bg-gray-700 rounded text-xs">-5%</button>
+              <button id="btn-tax-up" class="px-2 py-1 bg-gray-700 rounded text-xs">+5%</button>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500 mt-1">高税率は満足度を下げます</div>
+        </div>
+
+        <!-- 資源状況 -->
         <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
           <div class="text-sm text-gray-300 mb-2">資源状況</div>
-          <div class="grid grid-cols-3 gap-2 text-xs" id="dom-res-list">
-             <!-- JSで更新 -->
-          </div>
+          <div class="grid grid-cols-3 gap-2 text-xs" id="dom-res-list"></div>
+          <div class="mt-2 text-xs text-gray-500" id="dom-production"></div>
         </div>
 
         <div id="dom-built-area"></div>
@@ -252,7 +264,66 @@ export class UIManager {
       </div>
     `;
 
-    // 建物リスト生成
+    // 人口スライダーの初期化
+    const sliderContainer = document.getElementById('dom-pop-sliders');
+    const jobs = [
+      { id: 'farmers', label: '👨‍🌾 農民', color: 'green' },
+      { id: 'miners', label: '⛏️ 鉱夫', color: 'orange' },
+      { id: 'craftsmen', label: '🔧 職人', color: 'blue' },
+      { id: 'soldiers', label: '⚔️ 兵士', color: 'red' },
+    ];
+
+    jobs.forEach(job => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-2';
+      row.innerHTML = `
+        <span class="w-20 text-xs">${job.label}</span>
+        <button class="pop-btn-minus px-2 py-0.5 bg-gray-700 rounded text-xs" data-job="${job.id}">-</button>
+        <span id="pop-val-${job.id}" class="w-8 text-center text-sm font-medium">0</span>
+        <button class="pop-btn-plus px-2 py-0.5 bg-gray-700 rounded text-xs" data-job="${job.id}">+</button>
+      `;
+      sliderContainer.appendChild(row);
+    });
+
+    // 無職表示
+    const unemployedRow = document.createElement('div');
+    unemployedRow.className = 'flex items-center gap-2 mt-2 pt-2 border-t border-gray-700';
+    unemployedRow.innerHTML = `
+      <span class="w-20 text-xs text-gray-500">🤷 無職</span>
+      <span id="pop-val-unemployed" class="text-sm font-medium text-gray-400">0</span>
+    `;
+    sliderContainer.appendChild(unemployedRow);
+
+    // イベント設定
+    sliderContainer.querySelectorAll('.pop-btn-minus').forEach(btn => {
+      btn.onclick = () => {
+        const job = btn.dataset.job;
+        const current = this.engine.state.population[job];
+        if (current > 0) {
+          this.engine.assignPopulation(job, current - 1);
+        }
+      };
+    });
+
+    sliderContainer.querySelectorAll('.pop-btn-plus').forEach(btn => {
+      btn.onclick = () => {
+        const job = btn.dataset.job;
+        const current = this.engine.state.population[job];
+        if (this.engine.state.population.unemployed > 0) {
+          this.engine.assignPopulation(job, current + 1);
+        }
+      };
+    });
+
+    // 税率ボタン
+    document.getElementById('btn-tax-down').onclick = () => {
+      this.engine.setTaxRate(this.engine.state.taxRate - 0.05);
+    };
+    document.getElementById('btn-tax-up').onclick = () => {
+      this.engine.setTaxRate(this.engine.state.taxRate + 0.05);
+    };
+
+    // 建物リスト
     const listContainer = document.getElementById('dom-building-list');
     const buildingRows = {};
 
@@ -265,17 +336,13 @@ export class UIManager {
           <div class="text-xs text-gray-400">${b.description}</div>
           <div class="text-xs text-yellow-500 mt-1" id="bld-cost-${b.id}"></div>
         </div>
-        <button id="bld-btn-${b.id}" class="px-3 py-1.5 rounded text-xs font-bold bg-gray-700 text-gray-500">
-          建設
-        </button>
+        <button id="bld-btn-${b.id}" class="px-3 py-1.5 rounded text-xs font-bold bg-gray-700 text-gray-500">建設</button>
       `;
       listContainer.appendChild(row);
 
-      // イベント
       const btn = row.querySelector(`#bld-btn-${b.id}`);
       btn.onclick = () => this.triggerBuild(b.id);
 
-      // キャッシュ
       buildingRows[b.id] = {
         row: row,
         name: row.querySelector(`#bld-name-${b.id}`),
@@ -285,11 +352,20 @@ export class UIManager {
     });
 
     this.domCache.domestic = {
-      popList: document.getElementById('dom-pop-list'),
+      totalPop: document.getElementById('dom-total-pop'),
+      taxRate: document.getElementById('dom-tax-rate'),
       resList: document.getElementById('dom-res-list'),
+      production: document.getElementById('dom-production'),
       builtArea: document.getElementById('dom-built-area'),
       queueArea: document.getElementById('dom-queue-area'),
-      buildingRows: buildingRows
+      buildingRows: buildingRows,
+      popValues: {
+        farmers: document.getElementById('pop-val-farmers'),
+        miners: document.getElementById('pop-val-miners'),
+        craftsmen: document.getElementById('pop-val-craftsmen'),
+        soldiers: document.getElementById('pop-val-soldiers'),
+        unemployed: document.getElementById('pop-val-unemployed'),
+      }
     };
   }
 
@@ -297,14 +373,15 @@ export class UIManager {
     const c = this.domCache.domestic;
     if (!c) return;
 
-    // 人口
-    c.popList.innerHTML = `
-      <span>👨‍🌾 農民: ${state.population.farmers}</span>
-      <span>⛏️ 鉱夫: ${state.population.miners}</span>
-      <span>🔧 職人: ${state.population.craftsmen}</span>
-      <span>⚔️ 兵士: ${state.population.soldiers}</span>
-      <span>🤷 無職: ${state.population.unemployed}</span>
-    `;
+    c.totalPop.textContent = state.population.total;
+    c.taxRate.textContent = Math.round(state.taxRate * 100);
+
+    // 人口値更新
+    c.popValues.farmers.textContent = state.population.farmers;
+    c.popValues.miners.textContent = state.population.miners;
+    c.popValues.craftsmen.textContent = state.population.craftsmen;
+    c.popValues.soldiers.textContent = state.population.soldiers;
+    c.popValues.unemployed.textContent = state.population.unemployed;
 
     // 資源
     c.resList.innerHTML = `
@@ -315,6 +392,12 @@ export class UIManager {
       <span class="text-red-400">🗡️ ${Math.floor(state.resources.weapons)}</span>
       <span class="text-blue-400">🛡️ ${Math.floor(state.resources.armor)}</span>
     `;
+
+    // 生産量表示
+    const foodProd = Calcs.foodProduction(state);
+    const foodCons = Calcs.foodConsumption(state);
+    const foodNet = foodProd - foodCons;
+    c.production.innerHTML = `食糧: +${foodProd.toFixed(1)}/日 -${foodCons.toFixed(1)}/日 = <span class="${foodNet >= 0 ? 'text-green-400' : 'text-red-400'}">${foodNet >= 0 ? '+' : ''}${foodNet.toFixed(1)}/日</span>`;
 
     // 建設済み
     if (state.buildings.length > 0) {
@@ -369,15 +452,10 @@ export class UIManager {
       const isBuilding = state.constructionQueue.some(q => q.buildingId === b.id);
       const canBuild = canAfford && hasPrereq && !atMaxCount && !isBuilding;
 
-      // 不透明度
       rowCache.row.className = `bg-gray-800 p-3 rounded mb-2 border border-gray-700 flex justify-between items-center ${canBuild ? 'opacity-100' : 'opacity-50'}`;
 
-      // コストテキスト
-      const costText = b.cost.ore
-        ? `💰 ${b.cost.gold}G ⚫ ${b.cost.ore}鉱石`
-        : `💰 ${b.cost.gold}G`;
+      const costText = b.cost.ore ? `💰 ${b.cost.gold}G ⚫ ${b.cost.ore}鉱石` : `💰 ${b.cost.gold}G`;
 
-      // 状態テキスト
       let statusText = '';
       if (!hasPrereq) statusText = ' (前提未達成)';
       else if (atMaxCount) statusText = ' (上限)';
@@ -386,29 +464,129 @@ export class UIManager {
       rowCache.name.textContent = `${b.name}${statusText}`;
       rowCache.cost.innerHTML = `${costText} <span class="text-gray-500">⏳ ${b.buildTime}s</span>`;
 
-      // ボタン状態
       rowCache.btn.className = `px-3 py-1.5 rounded text-xs font-bold ${canBuild ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`;
       rowCache.btn.disabled = !canBuild;
     });
   }
 
-  // --- 技術タブ (Technology) ---
+  // --- 軍事タブ ---
+  initMilitaryTab(state) {
+    this.els.mainContent.innerHTML = `
+      <div class="p-4 pb-24 overflow-y-auto h-full">
+        <h2 class="text-lg font-bold text-gray-200 mb-3 border-b border-gray-700 pb-2">軍事</h2>
+        
+        <!-- 軍事概要 -->
+        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
+          <div class="text-sm text-gray-300 mb-2">軍事概要</div>
+          <div class="grid grid-cols-2 gap-2 text-xs" id="mil-overview"></div>
+        </div>
+
+        <!-- 装備状況 -->
+        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
+          <div class="text-sm text-gray-300 mb-2">装備状況</div>
+          <div id="mil-equipment" class="text-xs"></div>
+        </div>
+
+        <!-- 他国への侵攻 -->
+        <h3 class="text-sm font-bold text-gray-400 mb-2">侵攻可能な国家</h3>
+        <div id="mil-nations-list"></div>
+      </div>
+    `;
+
+    // 国家リスト
+    const nationList = document.getElementById('mil-nations-list');
+    const nationCards = {};
+
+    state.aiNations.forEach(nation => {
+      const card = document.createElement('div');
+      card.className = "bg-gray-800 p-3 rounded mb-2 border border-gray-700";
+      card.innerHTML = `
+        <div class="flex justify-between items-center">
+          <div>
+            <div class="font-bold text-sm text-orange-300" id="mil-n-${nation.id}-name">${nation.name}</div>
+            <div class="text-xs text-gray-400" id="mil-n-${nation.id}-power">軍事力: ${nation.militaryPower}</div>
+          </div>
+          <button id="mil-n-${nation.id}-btn" class="px-3 py-1.5 rounded text-xs font-bold bg-red-600 text-white">侵攻</button>
+        </div>
+      `;
+      nationList.appendChild(card);
+
+      const btn = card.querySelector(`#mil-n-${nation.id}-btn`);
+      btn.onclick = () => this.triggerAttack(nation.id);
+
+      nationCards[nation.id] = {
+        card: card,
+        name: card.querySelector(`#mil-n-${nation.id}-name`),
+        power: card.querySelector(`#mil-n-${nation.id}-power`),
+        btn: btn
+      };
+    });
+
+    this.domCache.military = {
+      overview: document.getElementById('mil-overview'),
+      equipment: document.getElementById('mil-equipment'),
+      nationCards: nationCards
+    };
+  }
+
+  updateMilitaryTab(state) {
+    const c = this.domCache.military;
+    if (!c) return;
+
+    const combatPower = Calcs.combatPower(state, false);
+    const equipRate = Calcs.equipmentRate(state);
+
+    c.overview.innerHTML = `
+      <div><span class="text-gray-500">総兵力:</span> <span class="text-white">${state.military.totalSoldiers}人</span></div>
+      <div><span class="text-gray-500">戦闘力:</span> <span class="text-orange-400">${combatPower}</span></div>
+      <div><span class="text-gray-500">装備率:</span> <span class="${equipRate >= 80 ? 'text-green-400' : equipRate >= 50 ? 'text-yellow-400' : 'text-red-400'}">${equipRate}%</span></div>
+      <div><span class="text-gray-500">士気:</span> <span class="${state.military.morale >= 70 ? 'text-green-400' : 'text-yellow-400'}">${state.military.morale}%</span></div>
+    `;
+
+    const soldiers = state.military.totalSoldiers;
+    const weapons = state.resources.weapons;
+    const armor = state.resources.armor;
+    c.equipment.innerHTML = `
+      <div>武器: ${Math.floor(weapons)} / ${soldiers}必要 (${soldiers > 0 ? Math.min(100, Math.floor(weapons/soldiers*100)) : 100}%)</div>
+      <div>鎧: ${Math.floor(armor)} / ${soldiers}必要 (${soldiers > 0 ? Math.min(100, Math.floor(armor/soldiers*100)) : 100}%)</div>
+    `;
+
+    // 国家リスト更新
+    state.aiNations.forEach(nation => {
+      const nc = c.nationCards[nation.id];
+      if (!nc) return;
+
+      if (nation.isDefeated) {
+        nc.card.className = "bg-gray-800 p-3 rounded mb-2 border border-gray-700 opacity-50";
+        nc.name.textContent = `${nation.name} (征服済み)`;
+        nc.btn.style.display = 'none';
+      } else {
+        nc.card.className = "bg-gray-800 p-3 rounded mb-2 border border-gray-700";
+        nc.name.textContent = nation.name;
+        nc.power.textContent = `軍事力: ${nation.militaryPower}`;
+        nc.btn.style.display = 'block';
+
+        const canAttack = state.military.totalSoldiers >= 10;
+        nc.btn.className = `px-3 py-1.5 rounded text-xs font-bold ${canAttack ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`;
+        nc.btn.disabled = !canAttack;
+      }
+    });
+  }
+
+  // --- 技術タブ ---
   initTechnologyTab(state) {
     this.els.mainContent.innerHTML = `
       <div class="p-4 pb-24 overflow-y-auto h-full" id="tech-container">
-        <h2 class="text-lg font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">技術研究</h2>
+        <h2 class="text-lg font-bold text-gray-200 mb-3 border-b border-gray-700 pb-2">技術研究</h2>
         <div id="tech-queue-area"></div>
         <div id="tech-researched-area"></div>
         <div id="tech-list-area"></div>
       </div>
     `;
 
-    // カテゴリごとにグループ化してリスト生成
     const categories = {};
     state.technologies.forEach(tech => {
-      if (!categories[tech.category]) {
-        categories[tech.category] = [];
-      }
+      if (!categories[tech.category]) categories[tech.category] = [];
       categories[tech.category].push(tech);
     });
 
@@ -432,26 +610,21 @@ export class UIManager {
 
       sortedTechs.forEach(tech => {
         const card = document.createElement('div');
-        // 初期スタイル
         card.innerHTML = `
           <div class="flex justify-between items-start">
             <div class="flex-1">
               <div class="font-bold text-sm text-purple-300 flex items-center gap-2">
-                ${tech.name}
-                <span class="text-xs text-gray-500">Tier ${tech.tier}</span>
+                ${tech.name} <span class="text-xs text-gray-500">Tier ${tech.tier}</span>
               </div>
               <div class="text-xs text-gray-400 mt-1">${tech.description}</div>
               <div class="text-xs mt-1" id="tech-cost-${tech.id}"></div>
               <div class="text-xs mt-1 text-gray-500" id="tech-status-${tech.id}"></div>
             </div>
-            <button id="tech-btn-${tech.id}" class="px-3 py-1.5 rounded text-xs font-bold bg-gray-700 text-gray-500">
-               研究
-            </button>
+            <button id="tech-btn-${tech.id}" class="px-3 py-1.5 rounded text-xs font-bold bg-gray-700 text-gray-500">研究</button>
           </div>
         `;
         catList.appendChild(card);
 
-        // イベント
         const btn = card.querySelector(`#tech-btn-${tech.id}`);
         btn.onclick = () => this.triggerResearch(tech.id);
 
@@ -475,22 +648,20 @@ export class UIManager {
     const c = this.domCache.technology;
     if (!c) return;
 
-    // キュー更新
     if (state.researchQueue.length > 0) {
       c.queueArea.innerHTML = `
         <div class="mb-4 bg-purple-900/30 p-3 rounded border border-purple-800">
           <div class="text-xs text-purple-400 mb-1">🔬 研究中:</div>
-             ${state.researchQueue.map(r => `
-               <div class="text-sm flex justify-between">
-                 <span class="text-white">${r.name}</span>
-                 <span class="text-purple-400">${Math.ceil(r.remainingTime)}秒</span>
-               </div>`).join('')}
+          ${state.researchQueue.map(r => `
+            <div class="text-sm flex justify-between">
+              <span class="text-white">${r.name}</span>
+              <span class="text-purple-400">${Math.ceil(r.remainingTime)}秒</span>
+            </div>`).join('')}
         </div>`;
     } else {
       c.queueArea.innerHTML = '';
     }
 
-    // 研究済み更新
     const researchedTechs = state.technologies.filter(t => t.isResearched);
     if (researchedTechs.length > 0) {
       c.researchedArea.innerHTML = `
@@ -502,7 +673,6 @@ export class UIManager {
       c.researchedArea.innerHTML = '';
     }
 
-    // 各カード更新
     state.technologies.forEach(tech => {
       const cardCache = c.techCards[tech.id];
       if (!cardCache) return;
@@ -510,7 +680,6 @@ export class UIManager {
       const isResearched = tech.isResearched;
       const isResearching = state.researchQueue.some(r => r.techId === tech.id);
 
-      // 前提条件
       let hasPrereq = true;
       let prereqText = '';
       if (tech.prerequisite) {
@@ -532,7 +701,7 @@ export class UIManager {
       const canResearch = !isResearched && !isResearching && hasPrereq && canAfford;
 
       let statusMsg = '';
-      let statusClass = 'border-gray-700 bg-gray-800'; // Default
+      let statusClass = 'border-gray-700 bg-gray-800';
       let statusTextClass = 'text-gray-500';
 
       if (isResearched) {
@@ -554,9 +723,7 @@ export class UIManager {
       cardCache.status.textContent = statusMsg;
       cardCache.status.className = `text-xs mt-1 ${statusTextClass}`;
 
-      const costText = tech.cost.mana
-        ? `💰 ${tech.cost.gold}G ✨ ${tech.cost.mana}魔力`
-        : `💰 ${tech.cost.gold}G`;
+      const costText = tech.cost.mana ? `💰 ${tech.cost.gold}G ✨ ${tech.cost.mana}魔力` : `💰 ${tech.cost.gold}G`;
       cardCache.cost.innerHTML = `<span class="text-yellow-500">${costText}</span> <span class="text-gray-500 ml-2">⏳ ${tech.researchTime}s</span>`;
 
       if (isResearched || isResearching) {
@@ -569,11 +736,11 @@ export class UIManager {
     });
   }
 
-  // --- 外交タブ (Diplomacy) ---
+  // --- 外交タブ ---
   initDiplomacyTab(state) {
     this.els.mainContent.innerHTML = `
       <div class="p-4 pb-24 overflow-y-auto h-full">
-        <h2 class="text-lg font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">外交</h2>
+        <h2 class="text-lg font-bold text-gray-200 mb-3 border-b border-gray-700 pb-2">外交</h2>
         
         <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
           <div class="text-sm text-gray-300">あなたの評判</div>
@@ -596,36 +763,37 @@ export class UIManager {
       card.className = "bg-gray-800 p-3 rounded mb-3 border border-gray-700";
       card.innerHTML = `
         <div class="flex justify-between items-start mb-2">
-            <div>
-              <div class="font-bold text-blue-300">${nation.name}</div>
-              <div class="text-xs text-gray-400">${nation.description}</div>
-            </div>
-            <div class="text-right">
-              <div class="text-xs text-gray-500">性格</div>
-              <div class="text-sm text-gray-300">${PERSONALITY_NAMES[nation.personality] || nation.personality}</div>
-            </div>
+          <div>
+            <div class="font-bold text-blue-300" id="dip-n-${nation.id}-name">${nation.name}</div>
+            <div class="text-xs text-gray-400">${nation.description}</div>
+          </div>
+          <div class="text-right">
+            <div class="text-xs text-gray-500">性格</div>
+            <div class="text-sm text-gray-300">${PERSONALITY_NAMES[nation.personality] || nation.personality}</div>
+          </div>
         </div>
         <div class="grid grid-cols-3 gap-2 text-xs mb-2">
-            <div><span class="text-gray-500">人口:</span> <span id="n-${nation.id}-pop" class="text-white"></span></div>
-            <div><span class="text-gray-500">軍事力:</span> <span id="n-${nation.id}-mil" class="text-orange-400"></span></div>
-            <div><span class="text-gray-500">関係:</span> <span id="n-${nation.id}-rel"></span></div>
+          <div><span class="text-gray-500">人口:</span> <span id="dip-n-${nation.id}-pop" class="text-white"></span></div>
+          <div><span class="text-gray-500">軍事力:</span> <span id="dip-n-${nation.id}-mil" class="text-orange-400"></span></div>
+          <div><span class="text-gray-500">関係:</span> <span id="dip-n-${nation.id}-rel"></span></div>
         </div>
-        <div id="n-${nation.id}-status" class="text-xs text-green-400 mb-2"></div>
+        <div id="dip-n-${nation.id}-status" class="text-xs text-green-400 mb-2"></div>
         <div class="flex gap-2">
-            <button id="n-${nation.id}-btn-trade" class="flex-1 px-3 py-1.5 rounded text-xs font-bold bg-gray-700"></button>
-            <button class="px-3 py-1.5 rounded text-xs font-bold bg-gray-700 text-gray-500 cursor-not-allowed" disabled>不可侵条約</button>
+          <button id="dip-n-${nation.id}-btn-trade" class="flex-1 px-3 py-1.5 rounded text-xs font-bold bg-gray-700"></button>
         </div>
       `;
       list.appendChild(card);
 
-      const btnTrade = card.querySelector(`#n-${nation.id}-btn-trade`);
+      const btnTrade = card.querySelector(`#dip-n-${nation.id}-btn-trade`);
       btnTrade.onclick = () => this.triggerTradeAgreement(nation.id);
 
       nationCache[nation.id] = {
-        pop: card.querySelector(`#n-${nation.id}-pop`),
-        mil: card.querySelector(`#n-${nation.id}-mil`),
-        rel: card.querySelector(`#n-${nation.id}-rel`),
-        status: card.querySelector(`#n-${nation.id}-status`),
+        card: card,
+        name: card.querySelector(`#dip-n-${nation.id}-name`),
+        pop: card.querySelector(`#dip-n-${nation.id}-pop`),
+        mil: card.querySelector(`#dip-n-${nation.id}-mil`),
+        rel: card.querySelector(`#dip-n-${nation.id}-rel`),
+        status: card.querySelector(`#dip-n-${nation.id}-status`),
         btnTrade: btnTrade
       };
     });
@@ -641,17 +809,24 @@ export class UIManager {
     const c = this.domCache.diplomacy;
     if (!c) return;
 
-    // 評判
     c.reputation.textContent = state.reputation;
     const repColor = state.reputation > 20 ? 'text-green-400' : state.reputation < -20 ? 'text-red-400' : 'text-yellow-400';
     c.reputation.className = `text-2xl font-bold ${repColor}`;
     c.repText.textContent = state.reputation >= 50 ? '名君' : state.reputation >= 0 ? '普通' : '悪評';
 
-    // 国家リスト
     state.aiNations.forEach(nation => {
       const nc = c.nations[nation.id];
       if (!nc) return;
 
+      if (nation.isDefeated) {
+        nc.card.className = "bg-gray-800 p-3 rounded mb-3 border border-gray-700 opacity-50";
+        nc.name.textContent = `${nation.name} (征服済み)`;
+        nc.btnTrade.style.display = 'none';
+        nc.status.textContent = '';
+        return;
+      }
+
+      nc.card.className = "bg-gray-800 p-3 rounded mb-3 border border-gray-700";
       nc.pop.textContent = nation.population;
       nc.mil.textContent = nation.militaryPower;
       nc.rel.textContent = Math.floor(nation.relationWithPlayer);
@@ -660,7 +835,6 @@ export class UIManager {
         nation.relationWithPlayer < -20 ? 'text-red-400' : 'text-yellow-400';
       nc.rel.className = relColor;
 
-      // 貿易状態
       const hasTrade = nation.treaties.some(t => t.type === 'trade');
       const tradeDuration = nation.treaties.find(t => t.type === 'trade')?.duration || 0;
 
@@ -683,23 +857,22 @@ export class UIManager {
     });
   }
 
-  // --- 情報タブ (Info) ---
+  // --- 情報タブ ---
   initInfoTab() {
     this.els.mainContent.innerHTML = `
       <div class="p-4 pb-24 overflow-y-auto h-full">
-        <h2 class="text-lg font-bold text-gray-200 mb-4 border-b border-gray-700 pb-2">情報・設定</h2>
+        <h2 class="text-lg font-bold text-gray-200 mb-3 border-b border-gray-700 pb-2">情報・設定</h2>
         
         <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
-           <div class="text-sm text-gray-300 mb-2">📊 ゲーム統計</div>
-           <div id="info-stats" class="grid grid-cols-2 gap-2 text-xs"></div>
+          <div class="text-sm text-gray-300 mb-2">📊 ゲーム統計</div>
+          <div id="info-stats" class="grid grid-cols-2 gap-2 text-xs"></div>
         </div>
 
         <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
-           <div class="text-sm text-gray-300 mb-2">📦 リソース詳細</div>
-           <div id="info-resources" class="grid grid-cols-2 gap-2 text-xs"></div>
+          <div class="text-sm text-gray-300 mb-2">🎯 勝利条件</div>
+          <div id="info-victory" class="text-xs space-y-1"></div>
         </div>
 
-        <!-- セーブ・ロード (これらは静的でよい) -->
         <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
           <div class="text-sm text-gray-300 mb-3">💾 セーブ・ロード</div>
           <div class="space-y-2">
@@ -707,7 +880,6 @@ export class UIManager {
             <button id="btn-manual-load" class="w-full px-4 py-2 rounded text-sm font-bold bg-green-600 hover:bg-green-500 text-white">📂 ロード</button>
             <button id="btn-new-game" class="w-full px-4 py-2 rounded text-sm font-bold bg-red-600 hover:bg-red-500 text-white">🔄 ニューゲーム</button>
           </div>
-          <div class="text-xs text-gray-500 mt-2">※ オートセーブは1分ごとに自動実行されます</div>
         </div>
       </div>
     `;
@@ -718,7 +890,7 @@ export class UIManager {
 
     this.domCache.info = {
       stats: document.getElementById('info-stats'),
-      resources: document.getElementById('info-resources')
+      victory: document.getElementById('info-victory')
     };
   }
 
@@ -729,8 +901,8 @@ export class UIManager {
     const researchedCount = state.technologies.filter(t => t.isResearched).length;
     const totalTechs = state.technologies.length;
     const buildingsCount = state.buildings.length;
-    const tradeCount = state.aiNations.reduce((sum, n) =>
-      sum + n.treaties.filter(t => t.type === 'trade').length, 0);
+    const tradeCount = state.aiNations.reduce((sum, n) => sum + n.treaties.filter(t => t.type === 'trade').length, 0);
+    const conqueredCount = state.aiNations.filter(n => n.isDefeated).length;
 
     c.stats.innerHTML = `
       <div><span class="text-gray-500">経過日数:</span> <span class="text-white ml-1">${Math.floor(state.day)}日</span></div>
@@ -738,26 +910,128 @@ export class UIManager {
       <div><span class="text-gray-500">研究済み技術:</span> <span class="text-purple-400 ml-1">${researchedCount}/${totalTechs}</span></div>
       <div><span class="text-gray-500">建設済み施設:</span> <span class="text-blue-400 ml-1">${buildingsCount}件</span></div>
       <div><span class="text-gray-500">貿易協定数:</span> <span class="text-green-400 ml-1">${tradeCount}件</span></div>
-      <div><span class="text-gray-500">評判:</span> <span class="${state.reputation >= 0 ? 'text-green-400' : 'text-red-400'} ml-1">${state.reputation}</span></div>
+      <div><span class="text-gray-500">征服した国:</span> <span class="text-red-400 ml-1">${conqueredCount}/5</span></div>
     `;
 
-    c.resources.innerHTML = `
-      <div class="flex justify-between"><span class="text-yellow-400">💰 資金:</span><span class="text-white">${Math.floor(state.resources.gold)}G</span></div>
-      <div class="flex justify-between"><span class="text-green-400">🌾 食糧:</span><span class="text-white">${Math.floor(state.resources.food)}</span></div>
-      <div class="flex justify-between"><span class="text-orange-400">⚫ 鉱石:</span><span class="text-white">${Math.floor(state.resources.ore)}</span></div>
-      <div class="flex justify-between"><span class="text-purple-400">✨ 魔力:</span><span class="text-white">${Math.floor(state.resources.mana)}</span></div>
-      <div class="flex justify-between"><span class="text-red-400">🗡️ 武器:</span><span class="text-white">${Math.floor(state.resources.weapons)}</span></div>
-      <div class="flex justify-between"><span class="text-blue-400">🛡️ 鎧:</span><span class="text-white">${Math.floor(state.resources.armor)}</span></div>
+    const activeNations = state.aiNations.filter(n => !n.isDefeated).length;
+    const dimMagic = state.technologies.find(t => t.id === 'dimensional_magic');
+    const allTrade = state.aiNations.every(n => n.isDefeated || n.treaties.some(t => t.type === 'trade'));
+
+    c.victory.innerHTML = `
+      <div class="${activeNations === 0 ? 'text-green-400' : 'text-gray-400'}">⚔️ 軍事統一: 全国家を征服 (${5 - activeNations}/5)</div>
+      <div class="${dimMagic?.isResearched && state.resources.gold >= 100000 ? 'text-green-400' : 'text-gray-400'}">🔬 技術勝利: 次元魔法 + 100,000G (${dimMagic?.isResearched ? '✓' : '✗'} / ${Math.floor(state.resources.gold)}/100,000G)</div>
+      <div class="${state.resources.gold >= 50000 && allTrade ? 'text-green-400' : 'text-gray-400'}">💰 経済勝利: 全国と貿易 + 50,000G (${allTrade ? '✓' : '✗'} / ${Math.floor(state.resources.gold)}/50,000G)</div>
     `;
   }
 
-  // --- 共通・ヘルパー ---
+  // --- 戦闘画面 ---
+  renderBattleScreen(state) {
+    const battle = state.currentBattle;
+    if (!battle) return;
 
+    const battleType = battle.isDefense ? '防衛戦' : '侵攻戦';
+    const resultText = battle.result === 'victory' ? '勝利！' : battle.result === 'defeat' ? '敗北...' : '戦闘中';
+    const resultColor = battle.result === 'victory' ? 'text-green-400' : battle.result === 'defeat' ? 'text-red-400' : 'text-yellow-400';
+
+    this.els.mainContent.innerHTML = `
+      <div class="p-4 h-full flex flex-col">
+        <div class="text-center mb-4">
+          <h2 class="text-xl font-bold text-orange-400">⚔️ ${battleType}</h2>
+          <div class="text-lg text-gray-300">vs ${battle.enemyName}</div>
+          <div class="text-2xl font-bold ${resultColor} mt-2">${resultText}</div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div class="bg-blue-900/30 p-3 rounded border border-blue-700">
+            <div class="text-sm text-blue-300 mb-2">味方軍</div>
+            <div class="text-xs space-y-1">
+              <div>兵力: ${battle.playerForces.current}/${battle.playerForces.initial}</div>
+              <div>戦闘力: ${battle.playerForces.power}</div>
+              <div>士気: ${battle.playerForces.morale}%</div>
+            </div>
+            <div class="mt-2 bg-gray-700 h-2 rounded">
+              <div class="bg-blue-500 h-2 rounded" style="width: ${(battle.playerForces.current / battle.playerForces.initial) * 100}%"></div>
+            </div>
+          </div>
+
+          <div class="bg-red-900/30 p-3 rounded border border-red-700">
+            <div class="text-sm text-red-300 mb-2">敵軍</div>
+            <div class="text-xs space-y-1">
+              <div>兵力: ${battle.enemyForces.current}/${battle.enemyForces.initial}</div>
+              <div>戦闘力: ${battle.enemyForces.power}</div>
+              <div>士気: ${battle.enemyForces.morale}%</div>
+            </div>
+            <div class="mt-2 bg-gray-700 h-2 rounded">
+              <div class="bg-red-500 h-2 rounded" style="width: ${(battle.enemyForces.current / battle.enemyForces.initial) * 100}%"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex-1 bg-gray-800 p-3 rounded border border-gray-700 overflow-y-auto">
+          <div class="text-xs text-gray-400 mb-2">戦闘ログ</div>
+          <div class="text-xs space-y-1 font-mono">
+            ${battle.log.slice(-10).map(l => `<div class="text-gray-300">${l}</div>`).join('')}
+          </div>
+        </div>
+
+        ${battle.result ? `
+          <button onclick="window.game.ui.closeBattle()" class="mt-4 w-full py-3 rounded font-bold bg-blue-600 hover:bg-blue-500 text-white">
+            戦闘結果を確認して閉じる
+          </button>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  closeBattle() {
+    this.engine.closeBattle();
+    this.renderedTab = null;
+  }
+
+  // --- 勝利/敗北画面 ---
+  renderGameEndScreen(state) {
+    const isVictory = state.victory;
+    const bgColor = isVictory ? 'bg-green-900/50' : 'bg-red-900/50';
+    const borderColor = isVictory ? 'border-green-600' : 'border-red-600';
+    const title = isVictory ? '🎉 勝利！' : '💀 ゲームオーバー';
+
+    let reason = '';
+    if (isVictory) {
+      switch (state.victoryType) {
+        case 'military': reason = '全国家を征服し、軍事統一を達成しました！'; break;
+        case 'technology': reason = '次元門を建設し、技術勝利を達成しました！'; break;
+        case 'economic': reason = '経済的覇権を確立し、経済勝利を達成しました！'; break;
+      }
+    } else {
+      switch (state.gameOverReason) {
+        case 'population': reason = '人口が0になり、国家が消滅しました。'; break;
+        case 'bankruptcy': reason = '30日間の破産状態により国家が崩壊しました。'; break;
+        case 'coup': reason = '民衆の不満によりクーデターが発生しました。'; break;
+      }
+    }
+
+    this.els.mainContent.innerHTML = `
+      <div class="p-8 h-full flex flex-col items-center justify-center ${bgColor}">
+        <div class="text-center ${borderColor} border-2 rounded-lg p-8 bg-gray-900/80">
+          <h1 class="text-4xl font-bold ${isVictory ? 'text-green-400' : 'text-red-400'} mb-4">${title}</h1>
+          <p class="text-lg text-gray-300 mb-6">${reason}</p>
+          <div class="text-sm text-gray-400 mb-6">
+            <div>経過日数: ${Math.floor(state.day)}日</div>
+            <div>最終人口: ${state.population.total}人</div>
+            <div>最終資金: ${Math.floor(state.resources.gold)}G</div>
+          </div>
+          <button onclick="window.game.ui.triggerNewGame()" class="px-6 py-3 rounded font-bold bg-blue-600 hover:bg-blue-500 text-white">
+            🔄 ニューゲーム
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  // --- ログ ---
   renderLog(state) {
-    // ログの差分更新（簡易版：ID比較）
     if (state.eventLog.length === 0) return;
 
-    // 最新のログIDが更新されていなければスキップ（ただし、初回は描画）
     const latestId = state.eventLog[0].id;
     if (this.lastLogId === latestId) return;
     this.lastLogId = latestId;
@@ -775,29 +1049,19 @@ export class UIManager {
   }
 
   getCategoryColor(category) {
-    const colors = {
-      agriculture: 'green',
-      military: 'red',
-      economy: 'yellow',
-      magic: 'purple',
-      industry: 'blue',
-    };
+    const colors = { agriculture: 'green', military: 'red', economy: 'yellow', magic: 'purple', industry: 'blue' };
     return colors[category] || 'gray';
   }
 
-  // ブリンジメソッド（HTMLから呼ばれるのではなくクラス内からバインド）
+  // --- トリガーメソッド ---
   triggerBuild(buildingId) {
     const result = this.engine.startConstruction(buildingId);
-    if (!result.success) {
-      this.showToast(result.message, 'error');
-    }
+    if (!result.success) this.showToast(result.message, 'error');
   }
 
   triggerResearch(techId) {
     const result = this.engine.startResearch(techId);
-    if (!result.success) {
-      this.showToast(result.message, 'error');
-    }
+    if (!result.success) this.showToast(result.message, 'error');
   }
 
   triggerTradeAgreement(nationId) {
@@ -809,9 +1073,17 @@ export class UIManager {
     }
   }
 
+  triggerAttack(nationId) {
+    this.showConfirmModal('本当にこの国家に侵攻しますか？', () => {
+      const result = this.engine.attackNation(nationId);
+      if (!result.success) {
+        this.showToast(result.message, 'error');
+      }
+    });
+  }
+
   triggerSave() {
-    const result = this.engine.saveGame();
-    if (result) {
+    if (this.engine.saveGame()) {
       this.showToast('セーブしました', 'success');
     } else {
       this.showToast('セーブに失敗しました', 'error');
@@ -820,10 +1092,9 @@ export class UIManager {
 
   triggerLoad() {
     if (this.engine.hasSaveData()) {
-      const result = this.engine.loadGame();
-      if (result) {
+      if (this.engine.loadGame()) {
         this.showToast('ロードしました', 'success');
-        this.renderedTab = null; // 強制再描画
+        this.renderedTab = null;
         this.render(this.engine.state);
       } else {
         this.showToast('ロードに失敗しました', 'error');
@@ -834,16 +1105,13 @@ export class UIManager {
   }
 
   triggerNewGame() {
-    this.showConfirmModal(
-      '本当に新しいゲームを開始しますか？\n現在のデータは全て失われます。',
-      () => {
-        this.engine.deleteSave();
-        this.engine.newGame();
-        this.showToast('新しいゲームを開始しました', 'success');
-        this.renderedTab = null; // 強制再描画
-        this.render(this.engine.state);
-      }
-    );
+    this.showConfirmModal('本当に新しいゲームを開始しますか？\n現在のデータは全て失われます。', () => {
+      this.engine.deleteSave();
+      this.engine.newGame();
+      this.showToast('新しいゲームを開始しました', 'success');
+      this.renderedTab = null;
+      this.render(this.engine.state);
+    });
   }
 
   showConfirmModal(message, onConfirm) {
@@ -868,12 +1136,7 @@ export class UIManager {
   }
 
   showToast(message, type = 'info') {
-    const colors = {
-      success: 'bg-green-600',
-      error: 'bg-red-600',
-      info: 'bg-blue-600',
-    };
-
+    const colors = { success: 'bg-green-600', error: 'bg-red-600', info: 'bg-blue-600' };
     const toast = document.createElement('div');
     toast.className = `fixed top-20 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded ${colors[type]} text-white text-sm z-50 shadow-lg`;
     toast.textContent = message;
@@ -896,10 +1159,7 @@ export class UIManager {
     ];
 
     this.els.tabMenu.innerHTML = tabs.map(tab => `
-      <button 
-        data-tab="${tab.id}"
-        class="flex-1 flex flex-col items-center justify-center py-2 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
-      >
+      <button data-tab="${tab.id}" class="flex-1 flex flex-col items-center justify-center py-2 text-gray-400 hover:bg-gray-800 hover:text-white transition-colors">
         <span class="text-xl">${tab.icon}</span>
         <span class="text-xs mt-1">${tab.label}</span>
       </button>
@@ -914,8 +1174,6 @@ export class UIManager {
         });
         btn.classList.remove('text-gray-400');
         btn.classList.add('text-blue-400', 'bg-gray-800');
-
-        // 即座に再描画
         this.render(this.engine.state);
       });
     });
