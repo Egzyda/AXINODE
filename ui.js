@@ -1,5 +1,5 @@
 /* ui.js - 画面描画とイベントハンドリング（完全版） */
-import { BUILDINGS, TECHNOLOGIES } from './data.js';
+import { BUILDINGS, TECHNOLOGIES, MAGICS } from './data.js';
 import { Calcs } from './engine.js';
 
 const LOG_STYLES = {
@@ -47,6 +47,7 @@ export class UIManager {
       military: null,
       technology: null,
       diplomacy: null,
+      magic: null,
       info: null,
     };
 
@@ -70,8 +71,8 @@ export class UIManager {
       return;
     }
 
-    // 戦闘画面チェック
-    if (state.currentBattle) {
+    // 戦闘画面チェック（情報タブ以外の場合のみ）
+    if (state.currentBattle && this.activeTab !== 'info') {
       this.renderBattleScreen(state);
       return;
     }
@@ -204,6 +205,9 @@ export class UIManager {
         case 'diplomacy':
           this.initDiplomacyTab(state);
           break;
+        case 'magic':
+          this.initMagicTab(state);
+          break;
         case 'info':
           this.initInfoTab();
           break;
@@ -221,6 +225,7 @@ export class UIManager {
       case 'military': this.updateMilitaryTab(state); break;
       case 'technology': this.updateTechnologyTab(state); break;
       case 'diplomacy': this.updateDiplomacyTab(state); break;
+      case 'magic': this.updateMagicTab(state); break;
       case 'info': this.updateInfoTab(state); break;
     }
   }
@@ -547,8 +552,8 @@ export class UIManager {
     const weapons = state.resources.weapons;
     const armor = state.resources.armor;
     c.equipment.innerHTML = `
-      <div>武器: ${Math.floor(weapons)} / ${soldiers}必要 (${soldiers > 0 ? Math.min(100, Math.floor(weapons/soldiers*100)) : 100}%)</div>
-      <div>鎧: ${Math.floor(armor)} / ${soldiers}必要 (${soldiers > 0 ? Math.min(100, Math.floor(armor/soldiers*100)) : 100}%)</div>
+      <div>武器: ${Math.floor(weapons)} / ${soldiers}必要 (${soldiers > 0 ? Math.min(100, Math.floor(weapons / soldiers * 100)) : 100}%)</div>
+      <div>鎧: ${Math.floor(armor)} / ${soldiers}必要 (${soldiers > 0 ? Math.min(100, Math.floor(armor / soldiers * 100)) : 100}%)</div>
     `;
 
     // 国家リスト更新
@@ -857,41 +862,112 @@ export class UIManager {
     });
   }
 
-  // --- 情報タブ ---
-  initInfoTab() {
+  // --- 魔法タブ ---
+  initMagicTab(state) {
     this.els.mainContent.innerHTML = `
       <div class="p-4 pb-24 overflow-y-auto h-full">
-        <h2 class="text-lg font-bold text-gray-200 mb-3 border-b border-gray-700 pb-2">情報・設定</h2>
-        
-        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
-          <div class="text-sm text-gray-300 mb-2">📊 ゲーム統計</div>
-          <div id="info-stats" class="grid grid-cols-2 gap-2 text-xs"></div>
+        <h2 class="text-lg font-bold text-gray-200 mb-3 border-b border-gray-700 pb-2">魔法</h2>
+
+        <!-- 持続中の効果 -->
+        <div id="magic-active-area" class="mb-4"></div>
+
+        <!-- 内政魔法 -->
+        <div class="mb-4">
+          <h3 class="text-sm font-bold text-green-400 mb-2">内政魔法</h3>
+          <div id="magic-list-domestic" class="space-y-2"></div>
         </div>
 
-        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
-          <div class="text-sm text-gray-300 mb-2">🎯 勝利条件</div>
-          <div id="info-victory" class="text-xs space-y-1"></div>
-        </div>
-
-        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
-          <div class="text-sm text-gray-300 mb-3">💾 セーブ・ロード</div>
-          <div class="space-y-2">
-            <button id="btn-manual-save" class="w-full px-4 py-2 rounded text-sm font-bold bg-blue-600 hover:bg-blue-500 text-white">💾 手動セーブ</button>
-            <button id="btn-manual-load" class="w-full px-4 py-2 rounded text-sm font-bold bg-green-600 hover:bg-green-500 text-white">📂 ロード</button>
-            <button id="btn-new-game" class="w-full px-4 py-2 rounded text-sm font-bold bg-red-600 hover:bg-red-500 text-white">🔄 ニューゲーム</button>
+        <!-- 戦略魔法 -->
+        <div class="mb-4">
+          <h3 class="text-sm font-bold text-purple-400 mb-2">戦略魔法</h3>
+          <div class="mb-2">
+            <label class="text-xs text-gray-400 block mb-1">対象国家:</label>
+            <select id="magic-target-select" class="w-full bg-gray-700 text-white rounded p-2 text-sm border border-gray-600">
+              <option value="">選択してください</option>
+              ${state.aiNations.filter(n => !n.isDefeated).map(n => `<option value="${n.id}">${n.name}</option>`).join('')}
+            </select>
           </div>
+          <div id="magic-list-strategic" class="space-y-2"></div>
         </div>
       </div>
     `;
 
-    document.getElementById('btn-manual-save').onclick = () => this.triggerSave();
-    document.getElementById('btn-manual-load').onclick = () => this.triggerLoad();
-    document.getElementById('btn-new-game').onclick = () => this.triggerNewGame();
-
-    this.domCache.info = {
-      stats: document.getElementById('info-stats'),
-      victory: document.getElementById('info-victory')
+    // 魔法リスト生成
+    const lists = {
+      domestic: document.getElementById('magic-list-domestic'),
+      strategic: document.getElementById('magic-list-strategic')
     };
+
+    // キャッシュ準備
+    const magicCards = {};
+
+    MAGICS.forEach(magic => {
+      if (magic.type === 'battle') return; // 戦闘魔法はここには表示しない（あるいは表示のみで無効?）
+
+      const container = lists[magic.type];
+      if (!container) return;
+
+      const card = document.createElement('div');
+      card.className = "bg-gray-800 p-3 rounded border border-gray-700 flex justify-between items-center";
+      card.innerHTML = `
+        <div class="flex-1">
+          <div class="font-bold text-sm text-purple-300">${magic.name}</div>
+          <div class="text-xs text-gray-400 mb-1">${magic.description}</div>
+          <div class="text-xs text-yellow-500">消費魔力: ${magic.manaCost}</div>
+        </div>
+        <button id="magic-btn-${magic.id}" class="px-3 py-1.5 rounded text-xs font-bold bg-purple-600 text-white ml-2">発動</button>
+      `;
+      container.appendChild(card);
+
+      const btn = card.querySelector(`#magic-btn-${magic.id}`);
+      btn.onclick = () => {
+        const targetId = magic.type === 'strategic' ? document.getElementById('magic-target-select').value : null;
+        if (magic.type === 'strategic' && magic.id !== 'major_barrier' && !targetId) {
+          this.showToast('対象国家を選択してください', 'error');
+          return;
+        }
+        this.triggerMagic(magic.id, targetId);
+      };
+
+      magicCards[magic.id] = { btn, magic };
+    });
+
+    this.domCache.magic = {
+      activeArea: document.getElementById('magic-active-area'),
+      magicCards,
+      targetSelect: document.getElementById('magic-target-select')
+    };
+  }
+
+  updateMagicTab(state) {
+    const c = this.domCache.magic;
+    if (!c) return;
+
+    // 持続効果表示
+    if (state.activeEffects && state.activeEffects.length > 0) {
+      c.activeArea.innerHTML = `
+        <div class="bg-purple-900/30 p-3 rounded border border-purple-800">
+          <div class="text-xs text-purple-400 mb-2">✨ 発動中の効果:</div>
+          <div class="space-y-1">
+            ${state.activeEffects.map(eff => `
+              <div class="flex justify-between text-sm">
+                <span class="text-white">${eff.name}</span>
+                <span class="text-purple-300">残り ${eff.duration.toFixed(1)}日</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    } else {
+      c.activeArea.innerHTML = '';
+    }
+
+    // 各魔法ボタンの状態更新
+    Object.values(c.magicCards).forEach(({ btn, magic }) => {
+      const canCast = state.resources.mana >= magic.manaCost;
+      btn.disabled = !canCast;
+      btn.className = `px-3 py-1.5 rounded text-xs font-bold ml-2 ${canCast ? 'bg-purple-600 hover:bg-purple-500 text-white' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`;
+    });
   }
 
   updateInfoTab(state) {
@@ -954,6 +1030,9 @@ export class UIManager {
             </div>
           </div>
 
+            </div>
+          </div>
+
           <div class="bg-red-900/30 p-3 rounded border border-red-700">
             <div class="text-sm text-red-300 mb-2">敵軍</div>
             <div class="text-xs space-y-1">
@@ -965,6 +1044,20 @@ export class UIManager {
               <div class="bg-red-500 h-2 rounded" style="width: ${(battle.enemyForces.current / battle.enemyForces.initial) * 100}%"></div>
             </div>
           </div>
+        </div>
+
+        <!-- 戦闘魔法 -->
+        <div class="grid grid-cols-3 gap-2 mb-4">
+          ${MAGICS.filter(m => m.type === 'battle').map(m => {
+      const canCast = state.resources.mana >= m.manaCost;
+      return `
+              <button onclick="window.game.ui.triggerMagic('${m.id}')" 
+                class="px-2 py-2 rounded text-xs font-bold ${canCast ? 'bg-purple-600 hover:bg-purple-500 text-white' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}"
+                ${!canCast ? 'disabled' : ''}>
+                ${m.name}<br>(${m.manaCost}MP)
+              </button>
+            `;
+    }).join('')}
         </div>
 
         <div class="flex-1 bg-gray-800 p-3 rounded border border-gray-700 overflow-y-auto">
@@ -1082,6 +1175,15 @@ export class UIManager {
     });
   }
 
+  triggerMagic(magicId, targetId = null) {
+    const result = this.engine.castMagic(magicId, targetId);
+    if (result.success) {
+      this.showToast('魔法を発動しました', 'success');
+    } else {
+      this.showToast(result.message, 'error');
+    }
+  }
+
   triggerSave() {
     if (this.engine.saveGame()) {
       this.showToast('セーブしました', 'success');
@@ -1106,11 +1208,9 @@ export class UIManager {
 
   triggerNewGame() {
     this.showConfirmModal('本当に新しいゲームを開始しますか？\n現在のデータは全て失われます。', () => {
-      this.engine.deleteSave();
-      this.engine.newGame();
-      this.showToast('新しいゲームを開始しました', 'success');
-      this.renderedTab = null;
-      this.render(this.engine.state);
+      // ローカルストレージを完全にクリアしてリロード
+      localStorage.clear();
+      location.reload();
     });
   }
 
@@ -1155,6 +1255,7 @@ export class UIManager {
       { id: 'military', icon: '⚔️', label: '軍事' },
       { id: 'diplomacy', icon: '🤝', label: '外交' },
       { id: 'technology', icon: '🔬', label: '技術' },
+      { id: 'magic', icon: '✨', label: '魔法' },
       { id: 'info', icon: '📊', label: '情報' },
     ];
 

@@ -1,5 +1,5 @@
 /* engine.js - ゲームの計算ロジックと状態管理（完全版） */
-import { BUILDINGS, TECHNOLOGIES, NATION_TEMPLATES, MAGICS } from './data.js';
+import { BUILDINGS, TECHNOLOGIES, NATION_TEMPLATES } from './data.js';
 
 // ------------------------------------------------------------------
 // 1. 定数 (Constants)
@@ -47,11 +47,6 @@ export const Calcs = {
 
     state.buildings.forEach(b => {
       if (b.effect.type === 'foodProduction') bonusPercent += b.effect.value;
-    });
-
-    // 魔法効果
-    state.activeEffects.forEach(eff => {
-      if (eff.type === 'foodProduction') bonusPercent += eff.value;
     });
 
     state.technologies.forEach(t => {
@@ -223,19 +218,6 @@ export const Calcs = {
     state.buildings.forEach(b => {
       if (b.effect.type === 'researchSpeed') bonusPercent += b.effect.value;
     });
-    // 魔法効果
-    state.activeEffects.forEach(eff => {
-      if (eff.type === 'timeAcceleration') bonusPercent += eff.value;
-    });
-    return 1 + bonusPercent / 100;
-  },
-
-  // 建設速度ボーナス
-  constructionSpeedBonus(state) {
-    let bonusPercent = 0;
-    state.activeEffects.forEach(eff => {
-      if (eff.type === 'timeAcceleration') bonusPercent += eff.value;
-    });
     return 1 + bonusPercent / 100;
   },
 
@@ -287,10 +269,6 @@ export const Calcs = {
         if (b.effect.type === 'defense') {
           defenseBonus += b.effect.value / 100;
         }
-      });
-      // 魔法効果（大結界）
-      state.activeEffects.forEach(eff => {
-        if (eff.type === 'defenseBonus') defenseBonus += eff.value / 100;
       });
     }
 
@@ -377,7 +355,6 @@ export class GameEngine {
       bankruptcyDays: 0,
       lowSatisfactionDays: 0,
       conqueredNations: 0,
-      activeEffects: [],
     };
   }
 
@@ -460,7 +437,6 @@ export class GameEngine {
     }
 
     if (loaded.reputation === undefined) loaded.reputation = 0;
-    if (loaded.activeEffects === undefined) loaded.activeEffects = [];
 
     return loaded;
   }
@@ -508,12 +484,6 @@ export class GameEngine {
     const prevDay = Math.floor(this.state.day);
     this.state.day += deltaTime * this.state.gameSpeed * 0.1;
     const currentDay = Math.floor(this.state.day);
-    const dayDiff = this.state.day - (prevDay + (this.state.day % 1) - (deltaTime * this.state.gameSpeed * 0.1));
-    // ※正確な差分計算が面倒なので、概算でdeltaTimeから計算する方が安全
-    const preciseDayProgress = deltaTime * this.state.gameSpeed * 0.1;
-
-    // 持続効果の更新
-    this.updateActiveEffects(preciseDayProgress);
 
     // 日次更新
     if (currentDay > prevDay) {
@@ -636,10 +606,8 @@ export class GameEngine {
 
   updateProgress(deltaSeconds) {
     // 建設キューの処理
-    const buildSpeed = Calcs.constructionSpeedBonus(this.state);
-
     for (let i = this.state.constructionQueue.length - 1; i >= 0; i--) {
-      this.state.constructionQueue[i].remainingTime -= deltaSeconds * buildSpeed;
+      this.state.constructionQueue[i].remainingTime -= deltaSeconds;
       if (this.state.constructionQueue[i].remainingTime <= 0) {
         const completed = this.state.constructionQueue.splice(i, 1)[0];
         const buildingData = BUILDINGS.find(b => b.id === completed.buildingId);
@@ -709,56 +677,42 @@ export class GameEngine {
 
     const events = [
       // ポジティブイベント
-      {
-        type: 'positive', name: '移住者到着', weight: 20, effect: () => {
-          const amount = Math.floor(Math.random() * 10) + 5;
-          this.addPopulation(amount);
-          this.addLog(`${amount}人の移住者が到着しました！`, 'domestic');
-        }
-      },
-      {
-        type: 'positive', name: '豊作', weight: 15, effect: () => {
-          const amount = Math.floor(Math.random() * 100) + 50;
-          this.state.resources.food += amount;
-          this.addLog(`豊作です！食糧+${amount}`, 'domestic');
-        }
-      },
-      {
-        type: 'positive', name: '鉱脈発見', weight: 10, effect: () => {
-          const amount = Math.floor(Math.random() * 50) + 30;
-          this.state.resources.ore += amount;
-          this.addLog(`新しい鉱脈が発見されました！鉱石+${amount}`, 'domestic');
-        }
-      },
-      {
-        type: 'positive', name: '商人来訪', weight: 15, effect: () => {
-          const amount = Math.floor(Math.random() * 100) + 50;
-          this.state.resources.gold += amount;
-          this.addLog(`大商人が訪れ、取引で${amount}Gを得ました`, 'domestic');
-        }
-      },
+      { type: 'positive', name: '移住者到着', weight: 20, effect: () => {
+        const amount = Math.floor(Math.random() * 10) + 5;
+        this.addPopulation(amount);
+        this.addLog(`${amount}人の移住者が到着しました！`, 'domestic');
+      }},
+      { type: 'positive', name: '豊作', weight: 15, effect: () => {
+        const amount = Math.floor(Math.random() * 100) + 50;
+        this.state.resources.food += amount;
+        this.addLog(`豊作です！食糧+${amount}`, 'domestic');
+      }},
+      { type: 'positive', name: '鉱脈発見', weight: 10, effect: () => {
+        const amount = Math.floor(Math.random() * 50) + 30;
+        this.state.resources.ore += amount;
+        this.addLog(`新しい鉱脈が発見されました！鉱石+${amount}`, 'domestic');
+      }},
+      { type: 'positive', name: '商人来訪', weight: 15, effect: () => {
+        const amount = Math.floor(Math.random() * 100) + 50;
+        this.state.resources.gold += amount;
+        this.addLog(`大商人が訪れ、取引で${amount}Gを得ました`, 'domestic');
+      }},
       // ネガティブイベント
-      {
-        type: 'negative', name: '干ばつ', weight: 10, condition: () => this.state.day > 15, effect: () => {
-          const loss = Math.floor(this.state.resources.food * 0.2);
-          this.state.resources.food = Math.max(0, this.state.resources.food - loss);
-          this.addLog(`干ばつが発生！食糧-${loss}`, 'important');
-        }
-      },
-      {
-        type: 'negative', name: '山賊襲撃', weight: 12, condition: () => this.state.day > 20, effect: () => {
-          const goldLoss = Math.floor(this.state.resources.gold * 0.1);
-          this.state.resources.gold = Math.max(0, this.state.resources.gold - goldLoss);
-          this.addLog(`山賊に襲撃されました！資金-${goldLoss}G`, 'important');
-        }
-      },
-      {
-        type: 'negative', name: '疫病', weight: 5, condition: () => this.state.day > 30 && this.state.population.total > 30, effect: () => {
-          const loss = Math.ceil(this.state.population.total * 0.05);
-          this.addPopulation(-loss);
-          this.addLog(`疫病が流行し、${loss}人が亡くなりました`, 'important');
-        }
-      },
+      { type: 'negative', name: '干ばつ', weight: 10, condition: () => this.state.day > 15, effect: () => {
+        const loss = Math.floor(this.state.resources.food * 0.2);
+        this.state.resources.food = Math.max(0, this.state.resources.food - loss);
+        this.addLog(`干ばつが発生！食糧-${loss}`, 'important');
+      }},
+      { type: 'negative', name: '山賊襲撃', weight: 12, condition: () => this.state.day > 20, effect: () => {
+        const goldLoss = Math.floor(this.state.resources.gold * 0.1);
+        this.state.resources.gold = Math.max(0, this.state.resources.gold - goldLoss);
+        this.addLog(`山賊に襲撃されました！資金-${goldLoss}G`, 'important');
+      }},
+      { type: 'negative', name: '疫病', weight: 5, condition: () => this.state.day > 30 && this.state.population.total > 30, effect: () => {
+        const loss = Math.ceil(this.state.population.total * 0.05);
+        this.addPopulation(-loss);
+        this.addLog(`疫病が流行し、${loss}人が亡くなりました`, 'important');
+      }},
     ];
 
     // 重み付き抽選
@@ -781,7 +735,6 @@ export class GameEngine {
 
     this.state.aiNations.forEach(nation => {
       if (nation.isDefeated || nation.isAtWar) return;
-      if (this.state.day < 60) return; // ゲーム開始から60日間は攻撃されない（平和期間）
       if (this.state.day - nation.lastAttackDay < 30) return; // 30日間隔
 
       // 攻撃判定
@@ -848,16 +801,6 @@ export class GameEngine {
     if (battle.elapsed >= 1) {
       battle.elapsed = 0;
 
-      // 戦闘が60秒以上続いた場合、強制的に決着
-      if (battle.log.length >= 60) { // logの長さで時間を概算
-        if (battle.playerForces.current >= battle.enemyForces.current) {
-          this.resolveBattle('victory');
-        } else {
-          this.resolveBattle('defeat');
-        }
-        return;
-      }
-
       const playerDamage = Math.floor(battle.enemyForces.power * 0.08);
       const enemyDamage = Math.floor(battle.playerForces.power * 0.10);
 
@@ -873,10 +816,9 @@ export class GameEngine {
         battle.enemyForces.morale = Math.min(100, battle.enemyForces.morale + 2);
       }
 
-      // 戦闘力の再計算（最小値1を保証して無限ループ防止）
-      // 兵数が残っているのに戦闘力が0になるとダメージが0になり終わらなくなるため
-      battle.playerForces.power = Math.max(1, Math.floor(battle.playerForces.power * (battle.playerForces.current / Math.max(1, battle.playerForces.initial))));
-      battle.enemyForces.power = Math.max(1, Math.floor(battle.enemyForces.power * (battle.enemyForces.current / Math.max(1, battle.enemyForces.initial))));
+      // 戦闘力の再計算
+      battle.playerForces.power = Math.floor(battle.playerForces.power * (battle.playerForces.current / Math.max(1, battle.playerForces.initial)));
+      battle.enemyForces.power = Math.floor(battle.enemyForces.power * (battle.enemyForces.current / Math.max(1, battle.enemyForces.initial)));
 
       battle.log.push(`味方: ${battle.playerForces.current}人 (士気${battle.playerForces.morale}%) | 敵: ${battle.enemyForces.current}人`);
 
@@ -1207,103 +1149,6 @@ export class GameEngine {
     }
 
     return this.startBattle(nationId, false);
-  }
-
-  // 魔法発動
-  castMagic(magicId, targetId = null) {
-    const magic = MAGICS.find(m => m.id === magicId);
-    if (!magic) return { success: false, message: '魔法が見つかりません' };
-
-    if (this.state.resources.mana < magic.manaCost) {
-      return { success: false, message: '魔力が不足しています' };
-    }
-
-    // 発動条件チェック
-    if (magic.type === 'battle' && !this.state.currentBattle) {
-      return { success: false, message: '戦闘中のみ使用可能です' };
-    }
-    if (magic.type === 'strategic' && !targetId) {
-      // 大結界はターゲット不要（自国）だが、天候操作などは必要
-      if (magic.id !== 'major_barrier') return { success: false, message: '対象国家を選択してください' };
-    }
-
-    // コスト消費
-    this.state.resources.mana -= magic.manaCost;
-
-    // 効果適用
-    switch (magic.effect.type) {
-      case 'foodProduction':
-      case 'timeAcceleration':
-      case 'defenseBonus':
-        if (magic.type === 'domestic' || magic.id === 'major_barrier') {
-          // 自国へのバフ
-          this.state.activeEffects.push({
-            id: magic.id,
-            name: magic.name,
-            type: magic.effect.type,
-            value: magic.effect.value,
-            duration: magic.effect.duration,
-            maxDuration: magic.effect.duration
-          });
-          this.addLog(`魔法「${magic.name}」を発動しました！`, 'magic');
-        } else {
-          // 戦略魔法（敵へのデバフ）未実装部分は簡易ログのみ
-          this.addLog(`魔法「${magic.name}」を発動しましたが、対象への効果は未実装です`, 'magic');
-        }
-        break;
-
-      case 'resourceGain':
-        this.state.resources[magic.effect.resource] += magic.effect.value;
-        this.addLog(`魔法「${magic.name}」により${magic.effect.value}の${magic.effect.resource}を得ました`, 'magic');
-        break;
-
-      case 'directDamage':
-        if (this.state.currentBattle) {
-          let damage = magic.effect.value;
-          // 攻城ボーナスなどがここに入る可能性あり
-
-          this.state.currentBattle.enemyForces.current = Math.max(0, this.state.currentBattle.enemyForces.current - damage);
-          this.state.currentBattle.log.push(`魔法攻撃！ 敵軍に${damage}のダメージ！`);
-          this.addLog(`魔法「${magic.name}」で敵軍にダメージを与えました`, 'magic');
-        }
-        break;
-
-      case 'sabotageFood':
-      case 'sabotagePopulation':
-        if (targetId) {
-          const target = this.state.aiNations.find(n => n.id === targetId);
-          if (target) {
-            if (magic.effect.type === 'sabotagePopulation') {
-              const loss = Math.floor(target.population * (magic.effect.value / 100));
-              target.population -= loss;
-              target.militaryPower = Math.floor(target.population * 0.12); // 戦力も減衰
-              this.addLog(`魔法「${magic.name}」が${target.name}の人口を${loss}人減少させました`, 'magic');
-              target.relationWithPlayer -= 30;
-            } else {
-              // 食糧サボタージュなどはAIの成長を阻害する形などで表現
-              this.addLog(`魔法「${magic.name}」を${target.name}に発動しました（AIへの効果は限定的です）`, 'magic');
-              target.relationWithPlayer -= 20;
-            }
-          }
-        }
-        break;
-    }
-
-    this.notify();
-    return { success: true };
-  }
-
-  updateActiveEffects(dayProgress) {
-    if (this.state.activeEffects.length === 0) return;
-
-    this.state.activeEffects = this.state.activeEffects.filter(eff => {
-      eff.duration -= dayProgress;
-      if (eff.duration <= 0) {
-        this.addLog(`魔法「${eff.name}」の効果が切れました`, 'domestic');
-        return false;
-      }
-      return true;
-    });
   }
 
   // ログ追加
