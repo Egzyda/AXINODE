@@ -5,7 +5,7 @@
   font-weight: 400;
   color-scheme: dark;
   /* 文字色: rgba(255, 255, 255, 0.87) */
-  color: #dee2e6; 
+  color: #dee2e6;
   background-color: #1a1a2e;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -15,8 +15,11 @@ body {
   margin: 0;
   padding: 0;
   min-width: 320px;
-  min-height: 100vh;
-  overflow: hidden; /* アプリっぽくスクロールさせない */
+  height: 100dvh; /* 動的ビューポート高さを採用 */
+  width: 100vw;
+  overflow: hidden;
+  position: fixed; /* 画面全体のバウンス・スクロールを物理的に禁止 */
+  touch-action: none; /* ブラウザ標準のジェスチャー干渉を軽減 */
 }
 
 /* カスタムスクロールバー (Webkit) */
