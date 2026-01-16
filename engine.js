@@ -20,7 +20,7 @@ export const CONSTANTS = {
   SATISFACTION_GROWTH: 70,
   SATISFACTION_DECLINE: 30,
   // ゲーム速度
-  GAME_SPEEDS: [1, 10, 20],
+  GAME_SPEEDS: [1, 2, 5, 10, 20],
   // 初期値
   INITIAL_GOLD: 500,
   INITIAL_FOOD: 100,
@@ -37,15 +37,15 @@ const Calcs = {
   // 食糧生産
   foodProduction(state) {
     const base = state.population.farmers * CONSTANTS.BASE_FOOD_PRODUCTION;
-    
+
     // ボーナス計算 (施設 + 技術 + 貿易協定)
     let bonusPercent = 0;
-    
+
     // 施設ボーナス
     state.buildings.forEach(b => {
       if (b.effect.type === 'foodProduction') bonusPercent += b.effect.value;
     });
-    
+
     // 技術ボーナス
     state.technologies.forEach(t => {
       if (t.isResearched && t.effect.type === 'farmEfficiency') {
@@ -67,7 +67,7 @@ const Calcs = {
   foodConsumption(state) {
     const civilians = state.population.total - state.military.totalSoldiers;
     return (civilians * CONSTANTS.BASE_FOOD_CONSUMPTION_CIVILIAN) +
-           (state.military.totalSoldiers * CONSTANTS.BASE_FOOD_CONSUMPTION_SOLDIER);
+      (state.military.totalSoldiers * CONSTANTS.BASE_FOOD_CONSUMPTION_SOLDIER);
   },
 
   // 鉱石生産
@@ -139,11 +139,11 @@ const Calcs = {
 
     const consumption = Math.max(1, this.foodConsumption(state));
     const foodDays = state.resources.food / consumption;
-    
+
     if (foodDays >= 7) score += 20;
     else if (foodDays >= 3) score += 10;
     else if (foodDays < 1) score -= 30;
-    
+
     return Math.max(0, Math.min(100, score));
   },
 
@@ -262,11 +262,11 @@ export class GameEngine {
       const saveData = localStorage.getItem(CONSTANTS.SAVE_KEY);
       if (saveData) {
         const loadedState = JSON.parse(saveData);
-        
+
         // 新しいプロパティが追加されている場合のマイグレーション
         const defaultState = this.createInitialState();
         this.state = this.migrateState(loadedState, defaultState);
-        
+
         this.addLog('セーブデータをロードしました', 'domestic');
         this.notify();
         return true;
@@ -374,7 +374,7 @@ export class GameEngine {
     const oreProd = Calcs.oreProduction(this.state);
     const weaponProd = Calcs.weaponProduction(this.state);
     const armorProd = Calcs.armorProduction(this.state);
-    
+
     // 消費
     const foodCons = Calcs.foodConsumption(this.state);
 
@@ -395,7 +395,7 @@ export class GameEngine {
     // 税収
     const tax = Calcs.taxIncome(this.state);
     const maintenance = this.state.military.totalSoldiers * 5;
-    
+
     this.state.resources.gold += (tax - maintenance);
     this.addLog(`月次収支: 税収+${tax}G, 維持費-${maintenance}G`, 'domestic');
 
@@ -439,27 +439,27 @@ export class GameEngine {
       if (constructionQueue[i].remainingTime <= 0) {
         const completed = constructionQueue.splice(i, 1)[0];
         const buildingData = BUILDINGS.find(b => b.id === completed.buildingId);
-        
+
         this.state.buildings.push({ ...buildingData, builtAt: this.state.day });
         this.addLog(`${buildingData.name} の建設が完了しました`, 'domestic');
       }
     }
-    
+
     // 研究キューの処理
     const researchQueue = this.state.researchQueue;
     const speedBonus = Calcs.researchSpeedBonus(this.state);
-    
+
     for (let i = researchQueue.length - 1; i >= 0; i--) {
       researchQueue[i].remainingTime -= deltaSeconds * speedBonus;
       if (researchQueue[i].remainingTime <= 0) {
         const completed = researchQueue.splice(i, 1)[0];
-        
+
         // 技術を研究済みにする
         const tech = this.state.technologies.find(t => t.id === completed.techId);
         if (tech) {
           tech.isResearched = true;
           this.addLog(`技術「${tech.name}」の研究が完了しました！`, 'tech');
-          
+
           // 効果の適用（特殊なものはここで処理）
           this.applyTechEffect(tech);
         }
@@ -571,13 +571,13 @@ export class GameEngine {
     // コスト消費
     this.state.resources.gold -= building.cost.gold;
     if (building.cost.ore) this.state.resources.ore -= building.cost.ore;
-    
+
     this.state.constructionQueue.push({
       buildingId: building.id,
       name: building.name,
       remainingTime: building.buildTime / 10
     });
-    
+
     this.addLog(`${building.name} の建設を開始しました`, 'domestic');
     this.notify();
     return { success: true };
