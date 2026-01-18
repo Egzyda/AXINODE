@@ -890,7 +890,7 @@ export class GameEngine {
         choices: [
           {
             text: '歓迎して受け入れる',
-            description: '市民として迎え入れ、食糧を配給します。(人口増大、食糧減少)',
+            description: '市民として迎え入れ、食糧を配給します。(人口増大、1人5食糧消費)',
             effect: (state) => {
               const amount = Math.floor(Math.random() * 10) + 5;
               const cost = amount * 5;
@@ -901,7 +901,7 @@ export class GameEngine {
           },
           {
             text: '労働力として酷使する',
-            description: '権利を与えず働かせます。(人口増大、満足度大幅低下)',
+            description: '権利を与えず働かせます。(人口増大、満足度-15)',
             effect: (state) => {
               const amount = Math.floor(Math.random() * 10) + 5;
               this.addPopulation(amount);
@@ -1045,1296 +1045,1286 @@ export class GameEngine {
                 type: 'positive',
                 title: `英雄「${hero.name}」`,
                 description: `「${hero.name}」が仕官を申し出ています。\n能力: ${hero.specialAbility.description}\n給与: ${hero.salary}G/月`,
-                this.triggerEvent({
-                  id: Date.now(),
-                  type: 'positive',
-                  title: `英雄「${hero.name}」`,
-                  description: `「${hero.name}」が仕官を申し出ています。\n能力: ${hero.specialAbility.description}\n給与: ${hero.salary}G/月`,
-                  choices: [
-                    {
-                      text: '雇用する (契約金なし)',
-                      effect: () => this.recruitUnit('hero', hero)
-                    },
-                    {
-                      text: '断る',
-                      effect: () => this.addLog(`${hero.name}を見送りました`, 'domestic')
-                    }
-                  ]
-                });
+
+                choices: [
                   {
-                  text: '断る',
-                  effect: () => this.addLog(`${hero.name}を見送りました`, 'domestic')
-                }
+                    text: '雇用する (契約金なし)',
+                    effect: () => this.recruitUnit('hero', hero)
+                  },
+                  {
+                    text: '断る',
+                    effect: () => this.addLog(`${hero.name}を見送りました`, 'domestic')
+                  }
                 ]
-      });
-  }
-},
-{ text: '断る', effect: () => { } }
+              });
+            },
+          },
+          { text: '断る', effect: () => { } }
         ]
       },
-{
-  type: 'positive',
-    name: 'スペシャリスト来訪',
-      title: '熟練者の来訪',
-        description: '腕利きの専門家が仕事を求めています。',
-          weight: 10,
-            condition: () => this.state.day > 15,
-              choices: [
-                {
-                  text: '面会する',
-                  effect: (state) => {
-                    const spec = SPECIALIST_TEMPLATES[Math.floor(Math.random() * SPECIALIST_TEMPLATES.length)];
-                    if (state.specialists.some(s => s.name === spec.name)) {
-                      this.addLog('その者は既に雇用されています', 'domestic'); return;
-                    }
-                    this.triggerEvent({
-                      id: Date.now(),
-                      type: 'positive',
-                      title: `熟練者「${spec.name}」`,
-                      description: `職種: ${this.getSpecialistTypeName(spec.type)}\n効果: ${spec.bonus.type} +${spec.bonus.value}\n給与: ${spec.salary}G/月`,
-                      choices: [
-                        { text: '雇用する (契約金なし)', effect: () => this.recruitUnit('specialist', spec) },
-                        { text: '断る', effect: () => { } }
-                      ]
-                    });
-                  }
-                },
-                { text: '断る', effect: () => { } }
-              ]
-},
-// ネガティブイベント
-{
-  type: 'negative',
-    name: '干ばつ',
-      title: '深刻な干ばつ',
-        description: '雨が降らず、作物が枯れ始めています。どう対処しますか？',
-          weight: 10,
-            condition: () => this.state.day > 15,
-              choices: [
-                {
-                  text: '耐える',
-                  description: '自然に任せます。(食糧減少)',
-                  effect: (state) => {
-                    const loss = Math.floor(state.resources.food * 0.3);
-                    state.resources.food = Math.max(0, state.resources.food - loss);
-                    this.addLog(`干ばつで作物が枯れ、食糧${loss}を失いました`, 'important');
-                  }
-                },
-                {
-                  text: '備蓄を放出する',
-                  description: '市場に介入し、混乱を防ぎます。(食糧減少小、金消費)',
-                  effect: (state) => {
-                    const loss = Math.floor(state.resources.food * 0.1);
-                    const cost = 100;
-                    if (state.resources.gold >= cost) {
-                      state.resources.gold -= cost;
-                      state.resources.food = Math.max(0, state.resources.food - loss);
-                      this.addLog('資金を投じて被害を最小限に食い止めました', 'domestic');
-                    } else {
-                      const bigLoss = Math.floor(state.resources.food * 0.3);
-                      state.resources.food = Math.max(0, state.resources.food - bigLoss);
-                      this.addLog('資金が足りず、大きな被害を受けました', 'important');
-                    }
-                  }
-                }
-              ]
-},
-{
-  type: 'negative',
-    name: '山賊襲撃',
-      title: '山賊団の出現',
-        description: '国境付近で山賊が略奪を行っています。',
-          weight: 12,
-            condition: () => this.state.day > 20,
-              choices: [
-                {
-                  text: '兵士を派遣して討伐',
-                  description: '武力で解決します。(勝利すれば被害なし、兵士が負傷する可能性あり)',
-                  effect: (state) => {
-                    const soldiers = state.military.totalSoldiers;
-                    if (soldiers >= 5) {
-                      const injury = Math.floor(Math.random() * 3);
-                      state.military.totalSoldiers = Math.max(0, state.military.totalSoldiers - injury);
-                      this.addLog(`兵士を派遣し、山賊を撃退しました！(負傷者${injury}名)`, 'military');
-                    } else {
-                      const loss = Math.floor(state.resources.gold * 0.2);
-                      state.resources.gold -= loss;
-                      this.addLog(`兵力が足りず撃退に失敗... ${loss}Gを略奪されました`, 'important');
-                    }
-                  }
-                },
-                {
-                  text: '金を払って見逃してもらう',
-                  description: '平和的に解決します。(金減少)',
-                  effect: (state) => {
-                    const loss = Math.floor(state.resources.gold * 0.1) + 50;
-                    state.resources.gold = Math.max(0, state.resources.gold - loss);
-                    this.addLog(`要求通り${loss}Gを支払い、山賊は去りました`, 'domestic');
-                  }
-                }
-              ]
-},
-{
-  type: 'negative',
-    name: '疫病',
-      title: '謎の疫病',
-        description: '原因不明の病が流行の兆しを見せています。',
-          weight: 5,
-            condition: () => this.state.day > 30 && this.state.population.total > 30,
-              choices: [
-                {
-                  text: '都市を封鎖する',
-                  description: '感染拡大を防ぎます。(満足度大幅低下、死者小)',
-                  effect: (state) => {
-                    state.satisfaction -= 20;
-                    const dead = Math.floor(state.population.total * 0.01);
-                    this.addPopulation(-dead);
-                    this.addLog(`封鎖により被害を抑えましたが、民衆は不満を抱いています (死者${dead}人)`, 'important');
-                  }
-                },
-                {
-                  text: '魔法薬を配布する',
-                  description: '高価な薬で治療します。(金・魔力消費、被害なし)',
-                  effect: (state) => {
-                    const goldCost = 300;
-                    const manaCost = 50;
-                    if (state.resources.gold >= goldCost && state.resources.mana >= manaCost) {
-                      state.resources.gold -= goldCost;
-                      state.resources.mana -= manaCost;
-                      state.satisfaction += 10;
-                      this.addLog('魔法薬の効果で疫病は収束しました。政府の対応が賞賛されています', 'domestic');
-                    } else {
-                      const dead = Math.floor(state.population.total * 0.1);
-                      this.addPopulation(-dead);
-                      this.addLog(`リソースが足りず薬を配れませんでした... ${dead}人が亡くなりました`, 'important');
-                    }
-                  }
-                }
-              ]
-},
-    ];
-
-// 重み付き抽選
-const availableEvents = events.filter(e => !e.condition || e.condition());
-const totalWeight = availableEvents.reduce((sum, e) => sum + e.weight, 0);
-let random = Math.random() * totalWeight;
-
-for (const event of availableEvents) {
-  random -= event.weight;
-  if (random <= 0) {
-    this.triggerEvent(event);
-    break;
-  }
-}
-  }
-
-// --- イベントトリガー ---
-triggerEvent(event) {
-  this.state.isEventPaused = true;
-  this.notify();
-
-  if (window.game && window.game.ui) {
-    window.game.ui.showEventModal(event, (choiceIndex) => {
-      const choice = event.choices[choiceIndex];
-      if (choice.effect) {
-        choice.effect(this.state); // stateを渡す
-      }
-      this.addLog(`イベント「${event.title}」: 【${choice.text}】を選択しました`, 'important');
-
-      this.state.isEventPaused = false;
-      this.lastTime = performance.now();
-      this.notify();
-    });
-  } else {
-    // フォールバック
-    console.warn('UI not found for event');
-    this.state.isEventPaused = false;
-  }
-}
-
-// --- AI行動 ---
-checkAIActions() {
-  if (this.state.currentBattle) return;
-
-  this.state.aiNations.forEach(nation => {
-    if (nation.isDefeated) return;
-    if (this.state.day < 60) return; // 開始60日は様子見
-
-    // クールダウン（攻撃も外交も共有）
-    const lastAction = Math.max(nation.lastAttackDay || 0, nation.lastDiplomacyDay || 0);
-    if (this.state.day - lastAction < 30) return;
-
-    const playerPower = Calcs.combatPower(this.state, true);
-
-    // 1. 戦争状態の処理
-    if (nation.isAtWar) {
-      // 戦争中なら攻撃頻度が高い
-      if (Math.random() < 0.2) {
-        nation.lastAttackDay = this.state.day;
-        this.startBattle(nation.id, true);
-      }
-      return;
-    }
-
-    // 2. 宣戦布告判定（関係最悪）
-    if (nation.relationWithPlayer < -80) {
-      if (Math.random() < 0.1) {
-        this.declareWar(nation);
-        return;
-      }
-    }
-
-    // 3. 奇襲攻撃判定（好戦的かつ相手が弱い）
-    if (nation.aggressiveness > 70 && nation.militaryPower > playerPower * 1.5) {
-      if (Math.random() < 0.05) {
-        this.declareWar(nation); // 奇襲でも宣戦布告扱いにする
-        return;
-      }
-    }
-
-    // 4. 外交アクション判定
-    if (Math.random() < 0.05) {
-      this.processDiplomaticAction(nation);
-    }
-  });
-}
-
-// 宣戦布告
-declareWar(nation) {
-  nation.lastAttackDay = this.state.day;
-  nation.isAtWar = true;
-  nation.relationWithPlayer = -100;
-
-  this.addLog(`${nation.name}から宣戦布告されました！`, 'important');
-
-  // イベントとして通知
-  this.triggerEvent({
-    id: Date.now(),
-    type: 'negative',
-    title: '宣戦布告',
-    description: `${nation.name}が我が国に対して宣戦を布告しました！国境付近に軍が集結しています。`,
-    choices: [{
-      text: '迎撃準備',
-      description: '直ちに戦闘態勢に入ります。',
-      effect: () => {
-        this.startBattle(nation.id, true);
-      }
-    }]
-  });
-  // D. 同盟・不可侵の打診 (親密な場合)
-  if (rel > 50 && !nation.treaties.some(t => t.type === 'alliance') && Math.random() < 0.3) {
-    // ... (省略可能だが、プレイヤーからのアクションを主とするため今回は省略)
-  }
-}
-
-// --- 拡張外交 ---
-signTreaty(nationId, type) {
-  const nation = this.state.aiNations.find(n => n.id === nationId);
-  if (!nation) return;
-
-  let cost = 0;
-  let duration = 0;
-  let relReq = 0;
-
-  switch (type) {
-    case 'non_aggression': // 不可侵条約
-      cost = 500;
-      duration = 360; // 1年
-      relReq = 20;
-      break;
-    case 'alliance': // 軍事同盟
-      cost = 2000;
-      duration = 720; // 2年
-      relReq = 60;
-      break;
-  }
-
-  if (nation.relationWithPlayer < relReq) {
-    this.addLog(`${nation.name}は提案に応じる気がないようです（友好度不足）`, 'diplomatic');
-    return;
-  }
-  if (this.state.resources.gold < cost) {
-    this.addLog(`条約締結のための資金が不足しています(${cost}G)`, 'diplomatic');
-    return;
-  }
-
-  this.state.resources.gold -= cost;
-  nation.treaties.push({ type: type, duration: duration });
-  nation.relationWithPlayer += 20;
-
-  const typeName = type === 'alliance' ? '軍事同盟' : '不可侵条約';
-  this.addLog(`${nation.name}との${typeName}を締結しました！`, 'diplomatic');
-}
-
-// 外交アクション処理
-processDiplomaticAction(nation) {
-  nation.lastDiplomacyDay = this.state.day;
-  const rel = nation.relationWithPlayer;
-  const isCommercial = nation.personality === 'commercial';
-  const isAggressive = nation.personality === 'aggressive';
-
-  // A. 貿易提案
-  if (!nation.treaties.some(t => t.type === 'trade') && (rel > 0 || isCommercial)) {
-    if (Math.random() < 0.6) {
-      const gift = Math.floor(Math.random() * 200) + 100;
-      this.triggerEvent({
-        id: Date.now(),
+      {
         type: 'positive',
-        title: '貿易協定の打診',
-        description: `${nation.name}から貿易協定の申し入れがありました。友好の証として${gift}Gの提供を申し出ています。`,
+        name: 'スペシャリスト来訪',
+        title: '熟練者の来訪',
+        description: '腕利きの専門家が仕事を求めています。',
+        weight: 10,
+        condition: () => this.state.day > 15,
         choices: [
           {
-            text: '受諾する',
-            description: `資金+${gift}、関係改善、貿易協定締結`,
-            effect: (s) => {
-              s.resources.gold += gift;
-              nation.relationWithPlayer += 15;
-              nation.treaties.push({ type: 'trade', duration: 12 });
-              this.addLog(`${nation.name}との貿易協定を締結しました`, 'diplomatic');
+            text: '面会する',
+            effect: (state) => {
+              const spec = SPECIALIST_TEMPLATES[Math.floor(Math.random() * SPECIALIST_TEMPLATES.length)];
+              if (state.specialists.some(s => s.name === spec.name)) {
+                this.addLog('その者は既に雇用されています', 'domestic'); return;
+              }
+              this.triggerEvent({
+                id: Date.now(),
+                type: 'positive',
+                title: `熟練者「${spec.name}」`,
+                description: `職種: ${this.getSpecialistTypeName(spec.type)}\n効果: ${spec.bonus.type} +${spec.bonus.value}\n給与: ${spec.salary}G/月`,
+                choices: [
+                  { text: '雇用する (契約金なし)', effect: () => this.recruitUnit('specialist', spec) },
+                  { text: '断る', effect: () => { } }
+                ]
+              });
+            }
+          },
+          { text: '断る', effect: () => { } }
+        ]
+      },
+      // ネガティブイベント
+      {
+        type: 'negative',
+        name: '干ばつ',
+        title: '深刻な干ばつ',
+        description: '雨が降らず、作物が枯れ始めています。どう対処しますか？',
+        weight: 10,
+        condition: () => this.state.day > 15,
+        choices: [
+          {
+            text: '耐える',
+            description: '自然に任せます。(食糧30%減少)',
+            effect: (state) => {
+              const loss = Math.floor(state.resources.food * 0.3);
+              state.resources.food = Math.max(0, state.resources.food - loss);
+              this.addLog(`干ばつで作物が枯れ、食糧${loss}を失いました`, 'important');
             }
           },
           {
-            text: '拒否する',
-            description: '関係悪化小',
+            text: '備蓄を放出する (100G)',
+            description: '市場に介入し、混乱を防ぎます。(食糧10%減少、金消費)',
+            effect: (state) => {
+              const loss = Math.floor(state.resources.food * 0.1);
+              const cost = 100;
+              if (state.resources.gold >= cost) {
+                state.resources.gold -= cost;
+                state.resources.food = Math.max(0, state.resources.food - loss);
+                this.addLog('資金を投じて被害を最小限に食い止めました', 'domestic');
+              } else {
+                const bigLoss = Math.floor(state.resources.food * 0.3);
+                state.resources.food = Math.max(0, state.resources.food - bigLoss);
+                this.addLog('資金が足りず、大きな被害を受けました', 'important');
+              }
+            }
+          }
+        ]
+      },
+      {
+        type: 'negative',
+        name: '山賊襲撃',
+        title: '山賊団の出現',
+        description: '国境付近で山賊が略奪を行っています。',
+        weight: 12,
+        condition: () => this.state.day > 20,
+        choices: [
+          {
+            text: '兵士を派遣して討伐 (必要兵力: 5)',
+            description: '武力で解決します。(勝利すれば被害なし、兵士が負傷する可能性あり)',
+            effect: (state) => {
+              const soldiers = state.military.totalSoldiers;
+              if (soldiers >= 5) {
+                const injury = Math.floor(Math.random() * 3);
+                state.military.totalSoldiers = Math.max(0, state.military.totalSoldiers - injury);
+                this.addLog(`兵士を派遣し、山賊を撃退しました！(負傷者${injury}名)`, 'military');
+              } else {
+                const loss = Math.floor(state.resources.gold * 0.2);
+                state.resources.gold -= loss;
+                this.addLog(`兵力が足りず撃退に失敗... ${loss}Gを略奪されました`, 'important');
+              }
+            }
+          },
+          {
+            text: '金を払って見逃してもらう (約10%金減少)',
+            description: '平和的に解決します。(金減少)',
+            effect: (state) => {
+              const loss = Math.floor(state.resources.gold * 0.1) + 50;
+              state.resources.gold = Math.max(0, state.resources.gold - loss);
+              this.addLog(`要求通り${loss}Gを支払い、山賊は去りました`, 'domestic');
+            }
+          }
+        ]
+      },
+      {
+        type: 'negative',
+        name: '疫病',
+        title: '謎の疫病',
+        description: '原因不明の病が流行の兆しを見せています。',
+        weight: 5,
+        condition: () => this.state.day > 30 && this.state.population.total > 30,
+        choices: [
+          {
+            text: '都市を封鎖する',
+            description: '感染拡大を防ぎます。(満足度大幅低下、死者小)',
+            effect: (state) => {
+              state.satisfaction -= 20;
+              const dead = Math.floor(state.population.total * 0.01);
+              this.addPopulation(-dead);
+              this.addLog(`封鎖により被害を抑えましたが、民衆は不満を抱いています (死者${dead}人)`, 'important');
+            }
+          },
+          {
+            text: '魔法薬を配布する (300G, 50魔力)',
+            description: '高価な薬で治療します。(被害なし)',
+            effect: (state) => {
+              const goldCost = 300;
+              const manaCost = 50;
+              if (state.resources.gold >= goldCost && state.resources.mana >= manaCost) {
+                state.resources.gold -= goldCost;
+                state.resources.mana -= manaCost;
+                state.satisfaction += 10;
+                this.addLog('魔法薬の効果で疫病は収束しました。政府の対応が賞賛されています', 'domestic');
+              } else {
+                const dead = Math.floor(state.population.total * 0.1);
+                this.addPopulation(-dead);
+                this.addLog(`リソースが足りず薬を配れませんでした... ${dead}人が亡くなりました`, 'important');
+              }
+            }
+          }
+        ]
+      },
+    ];
+
+    // 重み付き抽選
+    const availableEvents = events.filter(e => !e.condition || e.condition());
+    const totalWeight = availableEvents.reduce((sum, e) => sum + e.weight, 0);
+    let random = Math.random() * totalWeight;
+
+    for (const event of availableEvents) {
+      random -= event.weight;
+      if (random <= 0) {
+        this.triggerEvent(event);
+        break;
+      }
+    }
+  }
+
+  // --- イベントトリガー ---
+  triggerEvent(event) {
+    this.state.isEventPaused = true;
+    this.notify();
+
+    if (window.game && window.game.ui) {
+      window.game.ui.showEventModal(event, (choiceIndex) => {
+        const choice = event.choices[choiceIndex];
+        if (choice.effect) {
+          choice.effect(this.state); // stateを渡す
+        }
+        this.addLog(`イベント「${event.title}」: 【${choice.text}】を選択しました`, 'important');
+
+        this.state.isEventPaused = false;
+        this.lastTime = performance.now();
+        this.notify();
+      });
+    } else {
+      // フォールバック
+      console.warn('UI not found for event');
+      this.state.isEventPaused = false;
+    }
+  }
+
+  // --- AI行動 ---
+  checkAIActions() {
+    if (this.state.currentBattle) return;
+
+    this.state.aiNations.forEach(nation => {
+      if (nation.isDefeated) return;
+      if (this.state.day < 60) return; // 開始60日は様子見
+
+      // クールダウン（攻撃も外交も共有）
+      const lastAction = Math.max(nation.lastAttackDay || 0, nation.lastDiplomacyDay || 0);
+      if (this.state.day - lastAction < 30) return;
+
+      const playerPower = Calcs.combatPower(this.state, true);
+
+      // 1. 戦争状態の処理
+      if (nation.isAtWar) {
+        // 戦争中なら攻撃頻度が高い
+        if (Math.random() < 0.2) {
+          nation.lastAttackDay = this.state.day;
+          this.startBattle(nation.id, true);
+        }
+        return;
+      }
+
+      // 2. 宣戦布告判定（関係最悪）
+      if (nation.relationWithPlayer < -80) {
+        if (Math.random() < 0.1) {
+          this.declareWar(nation);
+          return;
+        }
+      }
+
+      // 3. 奇襲攻撃判定（好戦的かつ相手が弱い）
+      if (nation.aggressiveness > 70 && nation.militaryPower > playerPower * 1.5) {
+        if (Math.random() < 0.05) {
+          this.declareWar(nation); // 奇襲でも宣戦布告扱いにする
+          return;
+        }
+      }
+
+      // 4. 外交アクション判定
+      if (Math.random() < 0.05) {
+        this.processDiplomaticAction(nation);
+      }
+    });
+  }
+
+  // 宣戦布告
+  declareWar(nation) {
+    nation.lastAttackDay = this.state.day;
+    nation.isAtWar = true;
+    nation.relationWithPlayer = -100;
+
+    this.addLog(`${nation.name}から宣戦布告されました！`, 'important');
+
+    // イベントとして通知
+    this.triggerEvent({
+      id: Date.now(),
+      type: 'negative',
+      title: '宣戦布告',
+      description: `${nation.name}が我が国に対して宣戦を布告しました！国境付近に軍が集結しています。`,
+      choices: [{
+        text: '迎撃準備',
+        description: '直ちに戦闘態勢に入ります。',
+        effect: () => {
+          this.startBattle(nation.id, true);
+        }
+      }]
+    });
+    // D. 同盟・不可侵の打診 (親密な場合)
+    if (rel > 50 && !nation.treaties.some(t => t.type === 'alliance') && Math.random() < 0.3) {
+      // ... (省略可能だが、プレイヤーからのアクションを主とするため今回は省略)
+    }
+  }
+
+  // --- 拡張外交 ---
+  signTreaty(nationId, type) {
+    const nation = this.state.aiNations.find(n => n.id === nationId);
+    if (!nation) return;
+
+    let cost = 0;
+    let duration = 0;
+    let relReq = 0;
+
+    switch (type) {
+      case 'non_aggression': // 不可侵条約
+        cost = 500;
+        duration = 360; // 1年
+        relReq = 20;
+        break;
+      case 'alliance': // 軍事同盟
+        cost = 2000;
+        duration = 720; // 2年
+        relReq = 60;
+        break;
+    }
+
+    if (nation.relationWithPlayer < relReq) {
+      this.addLog(`${nation.name}は提案に応じる気がないようです（友好度不足）`, 'diplomatic');
+      return;
+    }
+    if (this.state.resources.gold < cost) {
+      this.addLog(`条約締結のための資金が不足しています(${cost}G)`, 'diplomatic');
+      return;
+    }
+
+    this.state.resources.gold -= cost;
+    nation.treaties.push({ type: type, duration: duration });
+    nation.relationWithPlayer += 20;
+
+    const typeName = type === 'alliance' ? '軍事同盟' : '不可侵条約';
+    this.addLog(`${nation.name}との${typeName}を締結しました！`, 'diplomatic');
+  }
+
+  // 外交アクション処理
+  processDiplomaticAction(nation) {
+    nation.lastDiplomacyDay = this.state.day;
+    const rel = nation.relationWithPlayer;
+    const isCommercial = nation.personality === 'commercial';
+    const isAggressive = nation.personality === 'aggressive';
+
+    // A. 貿易提案
+    if (!nation.treaties.some(t => t.type === 'trade') && (rel > 0 || isCommercial)) {
+      if (Math.random() < 0.6) {
+        const gift = Math.floor(Math.random() * 200) + 100;
+        this.triggerEvent({
+          id: Date.now(),
+          type: 'positive',
+          title: '貿易協定の打診',
+          description: `${nation.name}から貿易協定の申し入れがありました。友好の証として${gift}Gの提供を申し出ています。`,
+          choices: [
+            {
+              text: '受諾する',
+              description: `資金+${gift}、関係改善、貿易協定締結`,
+              effect: (s) => {
+                s.resources.gold += gift;
+                nation.relationWithPlayer += 15;
+                nation.treaties.push({ type: 'trade', duration: 12 });
+                this.addLog(`${nation.name}との貿易協定を締結しました`, 'diplomatic');
+              }
+            },
+            {
+              text: '拒否する',
+              description: '関係悪化小',
+              effect: () => {
+                nation.relationWithPlayer -= 5;
+                this.addLog(`${nation.name}からの申し入れを断りました`, 'diplomatic');
+              }
+            }
+          ]
+        });
+        return;
+      }
+    }
+
+    // B. 貢物要求（脅迫）
+    if (rel < -20 || isAggressive) {
+      const playerPower = Calcs.combatPower(this.state, true);
+      if (nation.militaryPower > playerPower * 1.3) {
+        const demand = Math.floor(this.state.resources.gold * 0.2) + 100;
+        this.triggerEvent({
+          id: Date.now(),
+          type: 'negative',
+          title: '貢物の要求',
+          description: `${nation.name}が国境に軍を展開し、手切れ金として${demand}Gを要求しています。「支払わぬなら剣で語るのみ」とのことです。`,
+          choices: [
+            {
+              text: '支払う',
+              description: `資金-${demand}、関係改善小、一時休戦`,
+              effect: (s) => {
+                if (s.resources.gold >= demand) {
+                  s.resources.gold -= demand;
+                  nation.relationWithPlayer += 10;
+                  this.addLog(`${nation.name}に要求された貢物を支払いました`, 'diplomatic');
+                } else {
+                  // 足りない場合は関係さらに悪化
+                  nation.relationWithPlayer -= 20;
+                  this.addLog('資金が足りず支払えませんでした。関係がさらに悪化しました', 'important');
+                }
+              }
+            },
+            {
+              text: '拒否する',
+              description: '関係大幅悪化、宣戦布告の可能性大',
+              effect: () => {
+                nation.relationWithPlayer -= 30;
+                this.addLog(`${nation.name}の要求を拒絶しました`, 'diplomatic');
+                if (Math.random() < 0.5) {
+                  setTimeout(() => this.declareWar(nation), 1000);
+                }
+              }
+            }
+          ]
+        });
+        return;
+      }
+    }
+
+    // C. 関係改善（親書）
+    if (rel > -20 && rel < 50) {
+      this.triggerEvent({
+        id: Date.now(),
+        type: 'normal',
+        title: '親書の到来',
+        description: `${nation.name}から親書が届きました。我が国との関係を深めたい意向のようです。`,
+        choices: [
+          {
+            text: '丁重に返信する',
+            description: '関係改善',
             effect: () => {
-              nation.relationWithPlayer -= 5;
-              this.addLog(`${nation.name}からの申し入れを断りました`, 'diplomatic');
+              nation.relationWithPlayer += 10;
+              this.addLog(`${nation.name}と友好的な書簡を交わしました`, 'diplomatic');
+            }
+          },
+          {
+            text: '無視する',
+            description: '関係微減',
+            effect: () => {
+              nation.relationWithPlayer -= 2;
             }
           }
         ]
       });
-      return;
     }
   }
 
-  // B. 貢物要求（脅迫）
-  if (rel < -20 || isAggressive) {
-    const playerPower = Calcs.combatPower(this.state, true);
-    if (nation.militaryPower > playerPower * 1.3) {
-      const demand = Math.floor(this.state.resources.gold * 0.2) + 100;
+  // --- 終盤イベント ---
+  checkEndGameEvents() {
+    const day = Math.floor(this.state.day);
+
+    // 90日目: 魔王復活の予兆
+    if (day === 90 && !this.state.eventLog.some(e => e.message.includes('魔王'))) {
+      this.addLog('【警告】 世界各地で謎の瘴気が観測されています... 魔王復活の予兆かもしれません', 'important');
+    }
+
+    // 100日目: 魔王軍出現（世界大戦モード）
+    if (day === 100 && !this.state.eventLog.some(e => e.message.includes('全国家の軍事力が強化'))) {
+      this.state.aiNations.forEach(n => {
+        if (!n.isDefeated) {
+          n.militaryPower += 2000;
+          n.aggressiveness = 100; // 超攻撃的
+          n.relationWithPlayer = -100;
+          // 魔王軍の影響下にあるという設定
+        }
+      });
+      // 魔王軍（仮想国家）も作成可能だが、既存国家の暴走で表現
+      this.addLog('【緊急】 魔王が復活し、世界中の国家が支配下に置かれました！', 'important');
       this.triggerEvent({
         id: Date.now(),
         type: 'negative',
-        title: '貢物の要求',
-        description: `${nation.name}が国境に軍を展開し、手切れ金として${demand}Gを要求しています。「支払わぬなら剣で語るのみ」とのことです。`,
+        title: '魔王復活',
+        description: '魔王の復活により世界は闇に包まれました。全ての国家が敵となり襲い掛かってきます！生き残るか、魔王を討伐しなければなりません。',
+        choices: [{ text: '迎撃準備', effect: () => { } }]
+      });
+    }
+
+    // 120日目: 魔王本隊襲来（最終決戦）
+    if (day === 120 && !this.state.victory) {
+      this.triggerEvent({
+        id: Date.now(),
+        type: 'negative',
+        title: '魔王軍本隊襲来',
+        description: '魔王軍の本隊が王都に接近しています！ これが最後の戦いです。勝利すれば世界に平和が戻ります。',
         choices: [
           {
-            text: '支払う',
-            description: `資金-${demand}、関係改善小、一時休戦`,
-            effect: (s) => {
-              if (s.resources.gold >= demand) {
-                s.resources.gold -= demand;
-                nation.relationWithPlayer += 10;
-                this.addLog(`${nation.name}に要求された貢物を支払いました`, 'diplomatic');
-              } else {
-                // 足りない場合は関係さらに悪化
-                nation.relationWithPlayer -= 20;
-                this.addLog('資金が足りず支払えませんでした。関係がさらに悪化しました', 'important');
-              }
+            text: '決戦を挑む',
+            description: '魔王軍(戦力5000)との戦闘開始',
+            effect: () => {
+              this.startBossBattle();
             }
           },
           {
-            text: '拒否する',
-            description: '関係大幅悪化、宣戦布告の可能性大',
+            text: '降伏する',
+            description: 'ゲームオーバー',
             effect: () => {
-              nation.relationWithPlayer -= 30;
-              this.addLog(`${nation.name}の要求を拒絶しました`, 'diplomatic');
-              if (Math.random() < 0.5) {
-                setTimeout(() => this.declareWar(nation), 1000);
-              }
+              this.endGame(false, 'surrender');
             }
           }
         ]
       });
+    }
+  }
+
+  startBossBattle() {
+    this.state.currentBattle = {
+      enemyId: 'demon_lord',
+      enemyName: '魔王軍本隊',
+      isDefense: true,
+      playerForces: {
+        initial: this.state.military.totalSoldiers,
+        current: this.state.military.totalSoldiers,
+        power: Calcs.combatPower(this.state, true),
+        morale: this.state.military.morale
+      },
+      enemyForces: {
+        initial: 5000,
+        current: 5000,
+        power: 5000, // 固定戦力
+        morale: 100
+      },
+      elapsed: 0,
+      log: ['魔王軍本隊との最終決戦が始まりました！'],
+      result: null,
+      isBoss: true
+    };
+    this.addLog('魔王軍本隊との戦闘が開始されました！', 'military');
+  }
+
+  // --- 勝敗判定 ---
+  checkVictoryConditions() {
+    if (this.state.victory || this.state.gameOver) return;
+
+    // 1. 統一勝利: 全ての他国を征服
+    const allConquered = this.state.aiNations.every(n => n.isDefeated);
+    if (allConquered) {
+      this.endGame(true, 'domination');
+      return;
+    }
+
+    // 2. 経済勝利: 資金100万G以上（難易度高め）
+    if (this.state.resources.gold >= 1000000) {
+      this.endGame(true, 'economic');
+      return;
+    }
+
+    // 3. 技術勝利: 全技術研究完了
+    if (this.state.technologies.every(t => t.isResearched)) {
+      this.endGame(true, 'technology');
       return;
     }
   }
 
-  // C. 関係改善（親書）
-  if (rel > -20 && rel < 50) {
-    this.triggerEvent({
-      id: Date.now(),
-      type: 'normal',
-      title: '親書の到来',
-      description: `${nation.name}から親書が届きました。我が国との関係を深めたい意向のようです。`,
-      choices: [
-        {
-          text: '丁重に返信する',
-          description: '関係改善',
-          effect: () => {
-            nation.relationWithPlayer += 10;
-            this.addLog(`${nation.name}と友好的な書簡を交わしました`, 'diplomatic');
-          }
-        },
-        {
-          text: '無視する',
-          description: '関係微減',
-          effect: () => {
-            nation.relationWithPlayer -= 2;
-          }
+  checkDefeatConditions() {
+    if (this.state.victory || this.state.gameOver) return;
+
+    // 1. 全滅敗北
+    if (this.state.population.total <= 0) {
+      this.endGame(false, 'annihilation');
+      return;
+    }
+
+    // 2. 破産敗北（借金生活が長く続くとか）
+    if (this.state.bankruptcyDays >= 360) { // 1年破産
+      this.endGame(false, 'bankruptcy');
+      return;
+    }
+
+    // 3. 支持率低下による革命
+    if (this.state.lowSatisfactionDays >= 180) { // 半年不満
+      this.endGame(false, 'revolution');
+      return;
+    }
+  }
+
+  endGame(isVictory, reason) {
+    this.state.victory = isVictory;
+    this.state.gameOver = !isVictory;
+    this.state.victoryType = reason;
+    this.state.isPaused = true;
+
+    // スコア計算
+    const score = this.calculateScore();
+    this.savePrestige(score);
+
+    const title = isVictory ? 'GAME CLEAR!' : 'GAME OVER';
+    let message = '';
+
+    switch (reason) {
+      case 'domination': message = 'あなたは大陸全土を統一し、絶対的な支配者となりました。'; break;
+      case 'economic': message = 'あなたの国は世界最大の経済大国となり、金で世界を動かすに至りました。'; break;
+      case 'technology': message = 'あなたの国は科学の極致に達し、別次元へと旅立ちました。'; break;
+      case 'demon_slayer': message = 'あなたは魔王を討ち果たし、伝説の英雄として語り継がれるでしょう。'; break;
+      case 'annihilation': message = '国民は死に絶え、国は滅びました...'; break;
+      case 'bankruptcy': message = '国家財政は破綻し、国は解体されました...'; break;
+      case 'revolution': message = '激怒した民衆により王宮は包囲され、あなたの治世は終わりました...'; break;
+      case 'surrender': message = '魔王軍に降伏し、世界は闇に包まれました...'; break;
+      case 'defeat': message = '戦いに敗れ、国は滅ぼされました...'; break;
+    }
+
+    message += `\n\n獲得スコア: ${score} pt\n周回ポイントとして保存されました。`;
+
+    if (window.game && window.game.ui) {
+      window.game.ui.showEventModal({
+        title: title,
+        description: message,
+        choices: [
+          { text: 'タイトルに戻る', effect: () => { location.reload(); } }
+        ]
+      }, () => { location.reload(); });
+    }
+  }
+
+  // --- 戦闘システム ---
+  startBattle(nationId, isDefense = false) {
+    const nation = this.state.aiNations.find(n => n.id === nationId);
+    if (!nation || nation.isDefeated) return { success: false, message: '対象国家が見つかりません' };
+
+    if (this.state.currentBattle) {
+      return { success: false, message: '既に戦闘中です' };
+    }
+
+    const playerPower = Calcs.combatPower(this.state, isDefense);
+    const enemyPower = nation.militaryPower;
+
+    this.state.currentBattle = {
+      enemyId: nationId,
+      enemyName: nation.name,
+      isDefense: isDefense,
+      playerForces: {
+        initial: this.state.military.totalSoldiers,
+        current: this.state.military.totalSoldiers,
+        power: playerPower,
+        morale: this.state.military.morale
+      },
+      enemyForces: {
+        initial: Math.floor(nation.population * 0.15),
+        current: Math.floor(nation.population * 0.15),
+        power: enemyPower,
+        morale: 70
+      },
+      elapsed: 0,
+      log: [],
+      result: null
+    };
+
+    const battleType = isDefense ? '防衛戦' : '侵攻戦';
+    this.addLog(`${nation.name}との${battleType}が開始されました！`, 'military');
+    this.state.currentBattle.log.push(`戦闘開始: 味方${playerPower} vs 敵${enemyPower}`);
+
+    return { success: true };
+  }
+
+  updateBattle(deltaSeconds) {
+    const battle = this.state.currentBattle;
+    if (!battle || battle.result) return;
+
+    battle.elapsed += deltaSeconds;
+
+    // 10秒ごとに戦闘フェーズを処理
+    if (battle.elapsed >= 1) {
+      battle.elapsed = 0;
+
+      // 戦闘が60秒以上続いた場合、強制的に決着
+      if (battle.log.length >= 60) { // logの長さで時間を概算
+        if (battle.playerForces.current >= battle.enemyForces.current) {
+          this.resolveBattle('victory');
+        } else {
+          this.resolveBattle('defeat');
         }
-      ]
-    });
-  }
-}
-
-// --- 終盤イベント ---
-checkEndGameEvents() {
-  const day = Math.floor(this.state.day);
-
-  // 90日目: 魔王復活の予兆
-  if (day === 90 && !this.state.eventLog.some(e => e.message.includes('魔王'))) {
-    this.addLog('【警告】 世界各地で謎の瘴気が観測されています... 魔王復活の予兆かもしれません', 'important');
-  }
-
-  // 100日目: 魔王軍出現（世界大戦モード）
-  if (day === 100 && !this.state.eventLog.some(e => e.message.includes('全国家の軍事力が強化'))) {
-    this.state.aiNations.forEach(n => {
-      if (!n.isDefeated) {
-        n.militaryPower += 2000;
-        n.aggressiveness = 100; // 超攻撃的
-        n.relationWithPlayer = -100;
-        // 魔王軍の影響下にあるという設定
+        return;
       }
-    });
-    // 魔王軍（仮想国家）も作成可能だが、既存国家の暴走で表現
-    this.addLog('【緊急】 魔王が復活し、世界中の国家が支配下に置かれました！', 'important');
-    this.triggerEvent({
-      id: Date.now(),
-      type: 'negative',
-      title: '魔王復活',
-      description: '魔王の復活により世界は闇に包まれました。全ての国家が敵となり襲い掛かってきます！生き残るか、魔王を討伐しなければなりません。',
-      choices: [{ text: '迎撃準備', effect: () => { } }]
-    });
-  }
 
-  // 120日目: 魔王本隊襲来（最終決戦）
-  if (day === 120 && !this.state.victory) {
-    this.triggerEvent({
-      id: Date.now(),
-      type: 'negative',
-      title: '魔王軍本隊襲来',
-      description: '魔王軍の本隊が王都に接近しています！ これが最後の戦いです。勝利すれば世界に平和が戻ります。',
-      choices: [
-        {
-          text: '決戦を挑む',
-          description: '魔王軍(戦力5000)との戦闘開始',
-          effect: () => {
-            this.startBossBattle();
-          }
-        },
-        {
-          text: '降伏する',
-          description: 'ゲームオーバー',
-          effect: () => {
-            this.endGame(false, 'surrender');
-          }
-        }
-      ]
-    });
-  }
-}
+      const playerDamage = Math.floor(battle.enemyForces.power * 0.08);
+      const enemyDamage = Math.floor(battle.playerForces.power * 0.10);
 
-startBossBattle() {
-  this.state.currentBattle = {
-    enemyId: 'demon_lord',
-    enemyName: '魔王軍本隊',
-    isDefense: true,
-    playerForces: {
-      initial: this.state.military.totalSoldiers,
-      current: this.state.military.totalSoldiers,
-      power: Calcs.combatPower(this.state, true),
-      morale: this.state.military.morale
-    },
-    enemyForces: {
-      initial: 5000,
-      current: 5000,
-      power: 5000, // 固定戦力
-      morale: 100
-    },
-    elapsed: 0,
-    log: ['魔王軍本隊との最終決戦が始まりました！'],
-    result: null,
-    isBoss: true
-  };
-  this.addLog('魔王軍本隊との戦闘が開始されました！', 'military');
-}
+      battle.playerForces.current = Math.max(0, battle.playerForces.current - playerDamage);
+      battle.enemyForces.current = Math.max(0, battle.enemyForces.current - enemyDamage);
 
-// --- 勝敗判定 ---
-checkVictoryConditions() {
-  if (this.state.victory || this.state.gameOver) return;
-
-  // 1. 統一勝利: 全ての他国を征服
-  const allConquered = this.state.aiNations.every(n => n.isDefeated);
-  if (allConquered) {
-    this.endGame(true, 'domination');
-    return;
-  }
-
-  // 2. 経済勝利: 資金100万G以上（難易度高め）
-  if (this.state.resources.gold >= 1000000) {
-    this.endGame(true, 'economic');
-    return;
-  }
-
-  // 3. 技術勝利: 全技術研究完了
-  if (this.state.technologies.every(t => t.isResearched)) {
-    this.endGame(true, 'technology');
-    return;
-  }
-}
-
-checkDefeatConditions() {
-  if (this.state.victory || this.state.gameOver) return;
-
-  // 1. 全滅敗北
-  if (this.state.population.total <= 0) {
-    this.endGame(false, 'annihilation');
-    return;
-  }
-
-  // 2. 破産敗北（借金生活が長く続くとか）
-  if (this.state.bankruptcyDays >= 360) { // 1年破産
-    this.endGame(false, 'bankruptcy');
-    return;
-  }
-
-  // 3. 支持率低下による革命
-  if (this.state.lowSatisfactionDays >= 180) { // 半年不満
-    this.endGame(false, 'revolution');
-    return;
-  }
-}
-
-endGame(isVictory, reason) {
-  this.state.victory = isVictory;
-  this.state.gameOver = !isVictory;
-  this.state.victoryType = reason;
-  this.state.isPaused = true;
-
-  // スコア計算
-  const score = this.calculateScore();
-  this.savePrestige(score);
-
-  const title = isVictory ? 'GAME CLEAR!' : 'GAME OVER';
-  let message = '';
-
-  switch (reason) {
-    case 'domination': message = 'あなたは大陸全土を統一し、絶対的な支配者となりました。'; break;
-    case 'economic': message = 'あなたの国は世界最大の経済大国となり、金で世界を動かすに至りました。'; break;
-    case 'technology': message = 'あなたの国は科学の極致に達し、別次元へと旅立ちました。'; break;
-    case 'demon_slayer': message = 'あなたは魔王を討ち果たし、伝説の英雄として語り継がれるでしょう。'; break;
-    case 'annihilation': message = '国民は死に絶え、国は滅びました...'; break;
-    case 'bankruptcy': message = '国家財政は破綻し、国は解体されました...'; break;
-    case 'revolution': message = '激怒した民衆により王宮は包囲され、あなたの治世は終わりました...'; break;
-    case 'surrender': message = '魔王軍に降伏し、世界は闇に包まれました...'; break;
-    case 'defeat': message = '戦いに敗れ、国は滅ぼされました...'; break;
-  }
-
-  message += `\n\n獲得スコア: ${score} pt\n周回ポイントとして保存されました。`;
-
-  if (window.game && window.game.ui) {
-    window.game.ui.showEventModal({
-      title: title,
-      description: message,
-      choices: [
-        { text: 'タイトルに戻る', effect: () => { location.reload(); } }
-      ]
-    }, () => { location.reload(); });
-  }
-}
-
-// --- 戦闘システム ---
-startBattle(nationId, isDefense = false) {
-  const nation = this.state.aiNations.find(n => n.id === nationId);
-  if (!nation || nation.isDefeated) return { success: false, message: '対象国家が見つかりません' };
-
-  if (this.state.currentBattle) {
-    return { success: false, message: '既に戦闘中です' };
-  }
-
-  const playerPower = Calcs.combatPower(this.state, isDefense);
-  const enemyPower = nation.militaryPower;
-
-  this.state.currentBattle = {
-    enemyId: nationId,
-    enemyName: nation.name,
-    isDefense: isDefense,
-    playerForces: {
-      initial: this.state.military.totalSoldiers,
-      current: this.state.military.totalSoldiers,
-      power: playerPower,
-      morale: this.state.military.morale
-    },
-    enemyForces: {
-      initial: Math.floor(nation.population * 0.15),
-      current: Math.floor(nation.population * 0.15),
-      power: enemyPower,
-      morale: 70
-    },
-    elapsed: 0,
-    log: [],
-    result: null
-  };
-
-  const battleType = isDefense ? '防衛戦' : '侵攻戦';
-  this.addLog(`${nation.name}との${battleType}が開始されました！`, 'military');
-  this.state.currentBattle.log.push(`戦闘開始: 味方${playerPower} vs 敵${enemyPower}`);
-
-  return { success: true };
-}
-
-updateBattle(deltaSeconds) {
-  const battle = this.state.currentBattle;
-  if (!battle || battle.result) return;
-
-  battle.elapsed += deltaSeconds;
-
-  // 10秒ごとに戦闘フェーズを処理
-  if (battle.elapsed >= 1) {
-    battle.elapsed = 0;
-
-    // 戦闘が60秒以上続いた場合、強制的に決着
-    if (battle.log.length >= 60) { // logの長さで時間を概算
-      if (battle.playerForces.current >= battle.enemyForces.current) {
-        this.resolveBattle('victory');
+      // 士気変動
+      if (battle.playerForces.power > battle.enemyForces.power) {
+        battle.playerForces.morale = Math.min(100, battle.playerForces.morale + 2);
+        battle.enemyForces.morale = Math.max(0, battle.enemyForces.morale - 3);
       } else {
+        battle.playerForces.morale = Math.max(0, battle.playerForces.morale - 3);
+        battle.enemyForces.morale = Math.min(100, battle.enemyForces.morale + 2);
+      }
+
+      // 戦闘力の再計算（最小値1を保証して無限ループ防止）
+      // 兵数が残っているのに戦闘力が0になるとダメージが0になり終わらなくなるため
+      battle.playerForces.power = Math.max(1, Math.floor(battle.playerForces.power * (battle.playerForces.current / Math.max(1, battle.playerForces.initial))));
+      battle.enemyForces.power = Math.max(1, Math.floor(battle.enemyForces.power * (battle.enemyForces.current / Math.max(1, battle.enemyForces.initial))));
+
+      battle.log.push(`味方: ${battle.playerForces.current}人 (士気${battle.playerForces.morale}%) | 敵: ${battle.enemyForces.current}人`);
+
+      // 勝敗判定
+      if (battle.enemyForces.current <= battle.enemyForces.initial * 0.3 || battle.enemyForces.morale <= 20) {
+        this.resolveBattle('victory');
+      } else if (battle.playerForces.current <= battle.playerForces.initial * 0.3 || battle.playerForces.morale <= 20) {
         this.resolveBattle('defeat');
       }
+    }
+  }
+
+  resolveBattle(result) {
+    const battle = this.state.currentBattle;
+    if (!battle) return;
+
+    battle.result = result;
+    const nation = this.state.aiNations.find(n => n.id === battle.enemyId);
+
+    if (result === 'victory') {
+      const casualties = battle.playerForces.initial - battle.playerForces.current;
+      this.state.military.totalSoldiers -= casualties;
+      this.state.military.infantry = Math.max(0, this.state.military.infantry - casualties);
+      this.state.military.morale = Math.min(100, this.state.military.morale + 10);
+
+      // 戦利品
+      const goldSpoils = Math.floor(nation.economicPower * 0.3);
+      this.state.resources.gold += goldSpoils;
+      this.state.reputation += 5;
+
+      if (!battle.isDefense) {
+        // 侵攻勝利で征服
+        nation.isDefeated = true;
+        this.state.conqueredNations++;
+        this.addLog(`${nation.name}を征服しました！戦利品: ${goldSpoils}G`, 'military');
+      } else {
+        this.addLog(`${nation.name}の侵攻を撃退しました！`, 'military');
+        nation.relationWithPlayer -= 20;
+      }
+    } else {
+      const casualties = Math.floor((battle.playerForces.initial - battle.playerForces.current) * 0.8);
+      this.state.military.totalSoldiers -= casualties;
+      this.state.military.infantry = Math.max(0, this.state.military.infantry - casualties);
+      this.state.military.morale = Math.max(20, this.state.military.morale - 15);
+      this.state.reputation -= 3;
+
+      if (battle.isDefense) {
+        // 防衛失敗でペナルティ
+        const goldLoss = Math.floor(this.state.resources.gold * 0.3);
+        this.state.resources.gold = Math.max(0, this.state.resources.gold - goldLoss);
+        this.addLog(`${nation.name}に敗北しました。${goldLoss}Gを略奪されました`, 'important');
+      } else {
+        this.addLog(`${nation.name}への侵攻に失敗しました`, 'important');
+      }
+    }
+  }
+
+  closeBattle() {
+    this.state.currentBattle = null;
+  }
+
+  // --- 勝敗判定 ---
+  checkVictoryConditions() {
+    // 軍事統一
+    const activeNations = this.state.aiNations.filter(n => !n.isDefeated).length;
+    if (activeNations === 0) {
+      this.state.victory = true;
+      this.state.victoryType = 'military';
+      this.addLog('全国家を征服しました！軍事統一達成！', 'important');
       return;
     }
 
-    const playerDamage = Math.floor(battle.enemyForces.power * 0.08);
-    const enemyDamage = Math.floor(battle.playerForces.power * 0.10);
+    // 技術勝利
+    const dimMagic = this.state.technologies.find(t => t.id === 'dimensional_magic');
+    if (dimMagic && dimMagic.isResearched && this.state.resources.gold >= 100000) {
+      this.state.victory = true;
+      this.state.victoryType = 'technology';
+      this.addLog('次元門を建設しました！技術勝利達成！', 'important');
+      return;
+    }
 
-    battle.playerForces.current = Math.max(0, battle.playerForces.current - playerDamage);
-    battle.enemyForces.current = Math.max(0, battle.enemyForces.current - enemyDamage);
+    // 経済勝利
+    const allTrade = this.state.aiNations.every(n => n.isDefeated || n.treaties.some(t => t.type === 'trade'));
+    if (this.state.resources.gold >= 50000 && allTrade) {
+      this.state.victory = true;
+      this.state.victoryType = 'economic';
+      this.addLog('経済的覇権を達成しました！経済勝利！', 'important');
+      return;
+    }
+  }
 
-    // 士気変動
-    if (battle.playerForces.power > battle.enemyForces.power) {
-      battle.playerForces.morale = Math.min(100, battle.playerForces.morale + 2);
-      battle.enemyForces.morale = Math.max(0, battle.enemyForces.morale - 3);
+  checkDefeatConditions() {
+    // 人口0
+    if (this.state.population.total <= 0) {
+      this.state.gameOver = true;
+      this.state.gameOverReason = 'population';
+      this.addLog('人口が0になりました。ゲームオーバー...', 'important');
+      return;
+    }
+
+    // 破産30日
+    if (this.state.bankruptcyDays >= 30) {
+      this.state.gameOver = true;
+      this.state.gameOverReason = 'bankruptcy';
+      this.addLog('30日間の破産状態により国家が崩壊しました', 'important');
+      return;
+    }
+
+    // 満足度0が7日
+    if (this.state.lowSatisfactionDays >= 7) {
+      this.state.gameOver = true;
+      this.state.gameOverReason = 'coup';
+      this.addLog('民衆の不満によりクーデターが発生しました', 'important');
+      return;
+    }
+  }
+
+  // --- アクション ---
+  togglePause() {
+    this.state.isPaused = !this.state.isPaused;
+    this.lastTime = performance.now();
+    this.notify();
+  }
+
+  setSpeed(speed) {
+    this.state.gameSpeed = speed;
+    this.notify();
+  }
+
+  setTaxRate(rate) {
+    this.state.taxRate = Math.max(0.05, Math.min(0.30, rate));
+    this.notify();
+  }
+
+  addPopulation(amount) {
+    this.state.population.total = Math.max(0, this.state.population.total + amount);
+    if (amount > 0) {
+      this.state.population.unemployed += amount;
     } else {
-      battle.playerForces.morale = Math.max(0, battle.playerForces.morale - 3);
-      battle.enemyForces.morale = Math.min(100, battle.enemyForces.morale + 2);
-    }
-
-    // 戦闘力の再計算（最小値1を保証して無限ループ防止）
-    // 兵数が残っているのに戦闘力が0になるとダメージが0になり終わらなくなるため
-    battle.playerForces.power = Math.max(1, Math.floor(battle.playerForces.power * (battle.playerForces.current / Math.max(1, battle.playerForces.initial))));
-    battle.enemyForces.power = Math.max(1, Math.floor(battle.enemyForces.power * (battle.enemyForces.current / Math.max(1, battle.enemyForces.initial))));
-
-    battle.log.push(`味方: ${battle.playerForces.current}人 (士気${battle.playerForces.morale}%) | 敵: ${battle.enemyForces.current}人`);
-
-    // 勝敗判定
-    if (battle.enemyForces.current <= battle.enemyForces.initial * 0.3 || battle.enemyForces.morale <= 20) {
-      this.resolveBattle('victory');
-    } else if (battle.playerForces.current <= battle.playerForces.initial * 0.3 || battle.playerForces.morale <= 20) {
-      this.resolveBattle('defeat');
+      // 減少時は無職から優先的に減らす
+      let remaining = Math.abs(amount);
+      const jobs = ['unemployed', 'farmers', 'miners', 'craftsmen'];
+      for (const job of jobs) {
+        const reduce = Math.min(this.state.population[job], remaining);
+        this.state.population[job] -= reduce;
+        remaining -= reduce;
+        if (remaining <= 0) break;
+      }
     }
   }
-}
 
-resolveBattle(result) {
-  const battle = this.state.currentBattle;
-  if (!battle) return;
+  // 職業配分
+  // 職業への人口割り当て
 
-  battle.result = result;
-  const nation = this.state.aiNations.find(n => n.id === battle.enemyId);
+  // 職業への人口割り当て
+  assignPopulation(job, amount) {
+    const currentAssigned = this.state.population.farmers + this.state.population.miners +
+      this.state.population.craftsmen + this.state.population.soldiers;
+    const maxAssignable = this.state.population.total;
 
-  if (result === 'victory') {
-    const casualties = battle.playerForces.initial - battle.playerForces.current;
-    this.state.military.totalSoldiers -= casualties;
-    this.state.military.infantry = Math.max(0, this.state.military.infantry - casualties);
-    this.state.military.morale = Math.min(100, this.state.military.morale + 10);
-
-    // 戦利品
-    const goldSpoils = Math.floor(nation.economicPower * 0.3);
-    this.state.resources.gold += goldSpoils;
-    this.state.reputation += 5;
-
-    if (!battle.isDefense) {
-      // 侵攻勝利で征服
-      nation.isDefeated = true;
-      this.state.conqueredNations++;
-      this.addLog(`${nation.name}を征服しました！戦利品: ${goldSpoils}G`, 'military');
+    if (job === 'soldiers') {
+      // 兵士への配置は特別処理
+      const change = amount - this.state.population.soldiers;
+      if (change > 0 && this.state.population.unemployed >= change) {
+        this.state.population.soldiers += change;
+        this.state.population.unemployed -= change;
+        this.state.military.totalSoldiers += change;
+        this.state.military.infantry += change;
+      } else if (change < 0) {
+        const release = Math.min(this.state.population.soldiers, Math.abs(change));
+        this.state.population.soldiers -= release;
+        this.state.population.unemployed += release;
+        this.state.military.totalSoldiers -= release;
+        this.state.military.infantry = Math.max(0, this.state.military.infantry - release);
+      }
     } else {
-      this.addLog(`${nation.name}の侵攻を撃退しました！`, 'military');
-      nation.relationWithPlayer -= 20;
+      const currentJob = this.state.population[job] || 0;
+      const change = amount - currentJob;
+
+      if (change > 0 && this.state.population.unemployed >= change) {
+        this.state.population[job] = amount;
+        this.state.population.unemployed -= change;
+      } else if (change < 0) {
+        this.state.population[job] = amount;
+        this.state.population.unemployed += Math.abs(change);
+      }
     }
-  } else {
-    const casualties = Math.floor((battle.playerForces.initial - battle.playerForces.current) * 0.8);
-    this.state.military.totalSoldiers -= casualties;
-    this.state.military.infantry = Math.max(0, this.state.military.infantry - casualties);
-    this.state.military.morale = Math.max(20, this.state.military.morale - 15);
-    this.state.reputation -= 3;
+    this.notify();
+  }
 
-    if (battle.isDefense) {
-      // 防衛失敗でペナルティ
-      const goldLoss = Math.floor(this.state.resources.gold * 0.3);
-      this.state.resources.gold = Math.max(0, this.state.resources.gold - goldLoss);
-      this.addLog(`${nation.name}に敗北しました。${goldLoss}Gを略奪されました`, 'important');
-    } else {
-      this.addLog(`${nation.name}への侵攻に失敗しました`, 'important');
+  // 建設開始
+  startConstruction(buildingId) {
+    const building = BUILDINGS.find(b => b.id === buildingId);
+    if (!building) return { success: false, message: '建物が見つかりません' };
+
+    const maxSimultaneous = Calcs.maxSimultaneousConstruction(this.state);
+    if (this.state.constructionQueue.length >= maxSimultaneous) {
+      return { success: false, message: `同時建設は${maxSimultaneous}件までです` };
     }
-  }
-}
 
-closeBattle() {
-  this.state.currentBattle = null;
-}
-
-// --- 勝敗判定 ---
-checkVictoryConditions() {
-  // 軍事統一
-  const activeNations = this.state.aiNations.filter(n => !n.isDefeated).length;
-  if (activeNations === 0) {
-    this.state.victory = true;
-    this.state.victoryType = 'military';
-    this.addLog('全国家を征服しました！軍事統一達成！', 'important');
-    return;
-  }
-
-  // 技術勝利
-  const dimMagic = this.state.technologies.find(t => t.id === 'dimensional_magic');
-  if (dimMagic && dimMagic.isResearched && this.state.resources.gold >= 100000) {
-    this.state.victory = true;
-    this.state.victoryType = 'technology';
-    this.addLog('次元門を建設しました！技術勝利達成！', 'important');
-    return;
-  }
-
-  // 経済勝利
-  const allTrade = this.state.aiNations.every(n => n.isDefeated || n.treaties.some(t => t.type === 'trade'));
-  if (this.state.resources.gold >= 50000 && allTrade) {
-    this.state.victory = true;
-    this.state.victoryType = 'economic';
-    this.addLog('経済的覇権を達成しました！経済勝利！', 'important');
-    return;
-  }
-}
-
-checkDefeatConditions() {
-  // 人口0
-  if (this.state.population.total <= 0) {
-    this.state.gameOver = true;
-    this.state.gameOverReason = 'population';
-    this.addLog('人口が0になりました。ゲームオーバー...', 'important');
-    return;
-  }
-
-  // 破産30日
-  if (this.state.bankruptcyDays >= 30) {
-    this.state.gameOver = true;
-    this.state.gameOverReason = 'bankruptcy';
-    this.addLog('30日間の破産状態により国家が崩壊しました', 'important');
-    return;
-  }
-
-  // 満足度0が7日
-  if (this.state.lowSatisfactionDays >= 7) {
-    this.state.gameOver = true;
-    this.state.gameOverReason = 'coup';
-    this.addLog('民衆の不満によりクーデターが発生しました', 'important');
-    return;
-  }
-}
-
-// --- アクション ---
-togglePause() {
-  this.state.isPaused = !this.state.isPaused;
-  this.lastTime = performance.now();
-  this.notify();
-}
-
-setSpeed(speed) {
-  this.state.gameSpeed = speed;
-  this.notify();
-}
-
-setTaxRate(rate) {
-  this.state.taxRate = Math.max(0.05, Math.min(0.30, rate));
-  this.notify();
-}
-
-addPopulation(amount) {
-  this.state.population.total = Math.max(0, this.state.population.total + amount);
-  if (amount > 0) {
-    this.state.population.unemployed += amount;
-  } else {
-    // 減少時は無職から優先的に減らす
-    let remaining = Math.abs(amount);
-    const jobs = ['unemployed', 'farmers', 'miners', 'craftsmen'];
-    for (const job of jobs) {
-      const reduce = Math.min(this.state.population[job], remaining);
-      this.state.population[job] -= reduce;
-      remaining -= reduce;
-      if (remaining <= 0) break;
+    if (this.state.resources.gold < building.cost.gold) {
+      return { success: false, message: '資金が不足しています' };
     }
-  }
-}
-
-// 職業配分
-// 職業への人口割り当て
-
-// 職業への人口割り当て
-assignPopulation(job, amount) {
-  const currentAssigned = this.state.population.farmers + this.state.population.miners +
-    this.state.population.craftsmen + this.state.population.soldiers;
-  const maxAssignable = this.state.population.total;
-
-  if (job === 'soldiers') {
-    // 兵士への配置は特別処理
-    const change = amount - this.state.population.soldiers;
-    if (change > 0 && this.state.population.unemployed >= change) {
-      this.state.population.soldiers += change;
-      this.state.population.unemployed -= change;
-      this.state.military.totalSoldiers += change;
-      this.state.military.infantry += change;
-    } else if (change < 0) {
-      const release = Math.min(this.state.population.soldiers, Math.abs(change));
-      this.state.population.soldiers -= release;
-      this.state.population.unemployed += release;
-      this.state.military.totalSoldiers -= release;
-      this.state.military.infantry = Math.max(0, this.state.military.infantry - release);
+    if (building.cost.ore && this.state.resources.ore < building.cost.ore) {
+      return { success: false, message: '鉱石が不足しています' };
     }
-  } else {
-    const currentJob = this.state.population[job] || 0;
-    const change = amount - currentJob;
 
-    if (change > 0 && this.state.population.unemployed >= change) {
-      this.state.population[job] = amount;
-      this.state.population.unemployed -= change;
-    } else if (change < 0) {
-      this.state.population[job] = amount;
-      this.state.population.unemployed += Math.abs(change);
+    if (building.prerequisite) {
+      const hasPrereq = building.prerequisite.every(prereqId => {
+        const tech = this.state.technologies.find(t => t.id === prereqId);
+        if (tech) return tech.isResearched;
+        return this.state.buildings.some(b => b.id === prereqId);
+      });
+      if (!hasPrereq) {
+        return { success: false, message: '前提条件を満たしていません' };
+      }
     }
-  }
-  this.notify();
-}
 
-// 建設開始
-startConstruction(buildingId) {
-  const building = BUILDINGS.find(b => b.id === buildingId);
-  if (!building) return { success: false, message: '建物が見つかりません' };
+    if (building.maxCount) {
+      const currentCount = this.state.buildings.filter(b => b.id === building.id).length;
+      if (currentCount >= building.maxCount) {
+        return { success: false, message: 'これ以上建設できません' };
+      }
+    }
 
-  const maxSimultaneous = Calcs.maxSimultaneousConstruction(this.state);
-  if (this.state.constructionQueue.length >= maxSimultaneous) {
-    return { success: false, message: `同時建設は${maxSimultaneous}件までです` };
-  }
+    this.state.resources.gold -= building.cost.gold;
+    if (building.cost.ore) this.state.resources.ore -= building.cost.ore;
 
-  if (this.state.resources.gold < building.cost.gold) {
-    return { success: false, message: '資金が不足しています' };
-  }
-  if (building.cost.ore && this.state.resources.ore < building.cost.ore) {
-    return { success: false, message: '鉱石が不足しています' };
-  }
-
-  if (building.prerequisite) {
-    const hasPrereq = building.prerequisite.every(prereqId => {
-      const tech = this.state.technologies.find(t => t.id === prereqId);
-      if (tech) return tech.isResearched;
-      return this.state.buildings.some(b => b.id === prereqId);
+    this.state.constructionQueue.push({
+      buildingId: building.id,
+      name: building.name,
+      remainingTime: building.buildTime / 10
     });
-    if (!hasPrereq) {
-      return { success: false, message: '前提条件を満たしていません' };
-    }
-  }
 
-  if (building.maxCount) {
-    const currentCount = this.state.buildings.filter(b => b.id === building.id).length;
-    if (currentCount >= building.maxCount) {
-      return { success: false, message: 'これ以上建設できません' };
-    }
-  }
-
-  this.state.resources.gold -= building.cost.gold;
-  if (building.cost.ore) this.state.resources.ore -= building.cost.ore;
-
-  this.state.constructionQueue.push({
-    buildingId: building.id,
-    name: building.name,
-    remainingTime: building.buildTime / 10
-  });
-
-  this.addLog(`${building.name} の建設を開始しました`, 'domestic');
-  this.notify();
-  return { success: true };
-}
-
-// 研究開始
-startResearch(techId) {
-  const tech = this.state.technologies.find(t => t.id === techId);
-  if (!tech) return { success: false, message: '技術が見つかりません' };
-
-  if (tech.isResearched) {
-    return { success: false, message: '既に研究済みです' };
-  }
-
-  if (this.state.researchQueue.some(r => r.techId === techId)) {
-    return { success: false, message: '既に研究中です' };
-  }
-
-  if (tech.prerequisite) {
-    const hasPrereq = tech.prerequisite.every(prereqId => {
-      const prereqTech = this.state.technologies.find(t => t.id === prereqId);
-      return prereqTech && prereqTech.isResearched;
-    });
-    if (!hasPrereq) {
-      return { success: false, message: '前提技術を研究していません' };
-    }
-  }
-
-  if (this.state.resources.gold < tech.cost.gold) {
-    return { success: false, message: '資金が不足しています' };
-  }
-  if (tech.cost.mana && this.state.resources.mana < tech.cost.mana) {
-    return { success: false, message: '魔力が不足しています' };
-  }
-
-  this.state.resources.gold -= tech.cost.gold;
-  if (tech.cost.mana) this.state.resources.mana -= tech.cost.mana;
-
-  this.state.researchQueue.push({
-    techId: tech.id,
-    name: tech.name,
-    remainingTime: tech.researchTime / 10
-  });
-
-  this.addLog(`技術「${tech.name}」の研究を開始しました`, 'tech');
-  this.notify();
-  return { success: true };
-}
-
-// 貿易協定
-proposeTradeAgreement(nationId) {
-  const nation = this.state.aiNations.find(n => n.id === nationId);
-  if (!nation) return { success: false, message: '国家が見つかりません' };
-  if (nation.isDefeated) return { success: false, message: 'この国家は既に征服されています' };
-
-  if (nation.treaties.some(t => t.type === 'trade')) {
-    return { success: false, message: '既に貿易協定を結んでいます' };
-  }
-
-  const baseCost = 200;
-  const relationModifier = nation.relationWithPlayer < 0 ? 1.5 : 1.0;
-  const cost = Math.floor(baseCost * relationModifier);
-
-  if (this.state.resources.gold < cost) {
-    return { success: false, message: `資金が不足しています（必要: ${cost}G）` };
-  }
-
-  let successChance = 50 + nation.relationWithPlayer / 2;
-  if (nation.personality === 'commercial') successChance += 30;
-  if (nation.personality === 'aggressive') successChance -= 20;
-  if (nation.personality === 'isolationist') successChance -= 40;
-
-  this.state.resources.gold -= cost;
-
-  if (Math.random() * 100 < successChance) {
-    nation.treaties.push({ type: 'trade', duration: 12 });
-    nation.relationWithPlayer += 10;
-    this.addLog(`${nation.name}と貿易協定を締結しました！`, 'diplomatic');
+    this.addLog(`${building.name} の建設を開始しました`, 'domestic');
     this.notify();
     return { success: true };
-  } else {
-    nation.relationWithPlayer -= 5;
-    this.addLog(`${nation.name}が貿易協定を拒否しました`, 'diplomatic');
+  }
+
+  // 研究開始
+  startResearch(techId) {
+    const tech = this.state.technologies.find(t => t.id === techId);
+    if (!tech) return { success: false, message: '技術が見つかりません' };
+
+    if (tech.isResearched) {
+      return { success: false, message: '既に研究済みです' };
+    }
+
+    if (this.state.researchQueue.some(r => r.techId === techId)) {
+      return { success: false, message: '既に研究中です' };
+    }
+
+    if (tech.prerequisite) {
+      const hasPrereq = tech.prerequisite.every(prereqId => {
+        const prereqTech = this.state.technologies.find(t => t.id === prereqId);
+        return prereqTech && prereqTech.isResearched;
+      });
+      if (!hasPrereq) {
+        return { success: false, message: '前提技術を研究していません' };
+      }
+    }
+
+    if (this.state.resources.gold < tech.cost.gold) {
+      return { success: false, message: '資金が不足しています' };
+    }
+    if (tech.cost.mana && this.state.resources.mana < tech.cost.mana) {
+      return { success: false, message: '魔力が不足しています' };
+    }
+
+    this.state.resources.gold -= tech.cost.gold;
+    if (tech.cost.mana) this.state.resources.mana -= tech.cost.mana;
+
+    this.state.researchQueue.push({
+      techId: tech.id,
+      name: tech.name,
+      remainingTime: tech.researchTime / 10
+    });
+
+    this.addLog(`技術「${tech.name}」の研究を開始しました`, 'tech');
     this.notify();
-    return { success: false, message: '提案は拒否されました' };
-  }
-}
-
-// 侵攻開始
-attackNation(nationId) {
-  const nation = this.state.aiNations.find(n => n.id === nationId);
-  if (!nation) return { success: false, message: '国家が見つかりません' };
-  if (nation.isDefeated) return { success: false, message: 'この国家は既に征服されています' };
-
-  if (this.state.military.totalSoldiers < 10) {
-    return { success: false, message: '最低10人の兵士が必要です' };
+    return { success: true };
   }
 
-  return this.startBattle(nationId, false);
-}
+  // 貿易協定
+  proposeTradeAgreement(nationId) {
+    const nation = this.state.aiNations.find(n => n.id === nationId);
+    if (!nation) return { success: false, message: '国家が見つかりません' };
+    if (nation.isDefeated) return { success: false, message: 'この国家は既に征服されています' };
 
-// 魔法発動
-castMagic(magicId, targetId = null) {
-  const magic = MAGICS.find(m => m.id === magicId);
-  if (!magic) return { success: false, message: '魔法が見つかりません' };
+    if (nation.treaties.some(t => t.type === 'trade')) {
+      return { success: false, message: '既に貿易協定を結んでいます' };
+    }
 
-  if (this.state.resources.mana < magic.manaCost) {
-    return { success: false, message: '魔力が不足しています' };
+    const baseCost = 200;
+    const relationModifier = nation.relationWithPlayer < 0 ? 1.5 : 1.0;
+    const cost = Math.floor(baseCost * relationModifier);
+
+    if (this.state.resources.gold < cost) {
+      return { success: false, message: `資金が不足しています（必要: ${cost}G）` };
+    }
+
+    let successChance = 50 + nation.relationWithPlayer / 2;
+    if (nation.personality === 'commercial') successChance += 30;
+    if (nation.personality === 'aggressive') successChance -= 20;
+    if (nation.personality === 'isolationist') successChance -= 40;
+
+    this.state.resources.gold -= cost;
+
+    if (Math.random() * 100 < successChance) {
+      nation.treaties.push({ type: 'trade', duration: 12 });
+      nation.relationWithPlayer += 10;
+      this.addLog(`${nation.name}と貿易協定を締結しました！`, 'diplomatic');
+      this.notify();
+      return { success: true };
+    } else {
+      nation.relationWithPlayer -= 5;
+      this.addLog(`${nation.name}が貿易協定を拒否しました`, 'diplomatic');
+      this.notify();
+      return { success: false, message: '提案は拒否されました' };
+    }
   }
 
-  // 発動条件チェック
-  if (magic.type === 'battle' && !this.state.currentBattle) {
-    return { success: false, message: '戦闘中のみ使用可能です' };
+  // 侵攻開始
+  attackNation(nationId) {
+    const nation = this.state.aiNations.find(n => n.id === nationId);
+    if (!nation) return { success: false, message: '国家が見つかりません' };
+    if (nation.isDefeated) return { success: false, message: 'この国家は既に征服されています' };
+
+    if (this.state.military.totalSoldiers < 10) {
+      return { success: false, message: '最低10人の兵士が必要です' };
+    }
+
+    return this.startBattle(nationId, false);
   }
-  if (magic.type === 'strategic' && !targetId) {
-    // 大結界はターゲット不要（自国）だが、天候操作などは必要
-    if (magic.id !== 'major_barrier') return { success: false, message: '対象国家を選択してください' };
-  }
 
-  // コスト消費
-  this.state.resources.mana -= magic.manaCost;
+  // 魔法発動
+  castMagic(magicId, targetId = null) {
+    const magic = MAGICS.find(m => m.id === magicId);
+    if (!magic) return { success: false, message: '魔法が見つかりません' };
 
-  // 効果適用
-  switch (magic.effect.type) {
-    case 'foodProduction':
-    case 'timeAcceleration':
-    case 'defenseBonus':
-      if (magic.type === 'domestic' || magic.id === 'major_barrier') {
-        // 自国へのバフ
-        this.state.activeEffects.push({
-          id: magic.id,
-          name: magic.name,
-          type: magic.effect.type,
-          value: magic.effect.value,
-          duration: magic.effect.duration,
-          maxDuration: magic.effect.duration
-        });
-        this.addLog(`魔法「${magic.name}」を発動しました！`, 'magic');
-      } else {
-        // 戦略魔法（敵へのデバフ）未実装部分は簡易ログのみ
-        this.addLog(`魔法「${magic.name}」を発動しましたが、対象への効果は未実装です`, 'magic');
-      }
-      break;
+    if (this.state.resources.mana < magic.manaCost) {
+      return { success: false, message: '魔力が不足しています' };
+    }
 
-    case 'resourceGain':
-      this.state.resources[magic.effect.resource] += magic.effect.value;
-      this.addLog(`魔法「${magic.name}」により${magic.effect.value}の${magic.effect.resource}を得ました`, 'magic');
-      break;
+    // 発動条件チェック
+    if (magic.type === 'battle' && !this.state.currentBattle) {
+      return { success: false, message: '戦闘中のみ使用可能です' };
+    }
+    if (magic.type === 'strategic' && !targetId) {
+      // 大結界はターゲット不要（自国）だが、天候操作などは必要
+      if (magic.id !== 'major_barrier') return { success: false, message: '対象国家を選択してください' };
+    }
 
-    case 'directDamage':
-      if (this.state.currentBattle) {
-        let damage = magic.effect.value;
-        // 攻城ボーナスなどがここに入る可能性あり
+    // コスト消費
+    this.state.resources.mana -= magic.manaCost;
 
-        this.state.currentBattle.enemyForces.current = Math.max(0, this.state.currentBattle.enemyForces.current - damage);
-        this.state.currentBattle.log.push(`魔法攻撃！ 敵軍に${damage}のダメージ！`);
-        this.addLog(`魔法「${magic.name}」で敵軍にダメージを与えました`, 'magic');
-      }
-      break;
+    // 効果適用
+    switch (magic.effect.type) {
+      case 'foodProduction':
+      case 'timeAcceleration':
+      case 'defenseBonus':
+        if (magic.type === 'domestic' || magic.id === 'major_barrier') {
+          // 自国へのバフ
+          this.state.activeEffects.push({
+            id: magic.id,
+            name: magic.name,
+            type: magic.effect.type,
+            value: magic.effect.value,
+            duration: magic.effect.duration,
+            maxDuration: magic.effect.duration
+          });
+          this.addLog(`魔法「${magic.name}」を発動しました！`, 'magic');
+        } else {
+          // 戦略魔法（敵へのデバフ）未実装部分は簡易ログのみ
+          this.addLog(`魔法「${magic.name}」を発動しましたが、対象への効果は未実装です`, 'magic');
+        }
+        break;
 
-    case 'sabotageFood':
-    case 'sabotagePopulation':
-      if (targetId) {
-        const target = this.state.aiNations.find(n => n.id === targetId);
-        if (target) {
-          if (magic.effect.type === 'sabotagePopulation') {
-            const loss = Math.floor(target.population * (magic.effect.value / 100));
-            target.population -= loss;
-            target.militaryPower = Math.floor(target.population * 0.12); // 戦力も減衰
-            this.addLog(`魔法「${magic.name}」が${target.name}の人口を${loss}人減少させました`, 'magic');
-            target.relationWithPlayer -= 30;
-          } else {
-            // 食糧サボタージュなどはAIの成長を阻害する形などで表現
-            this.addLog(`魔法「${magic.name}」を${target.name}に発動しました（AIへの効果は限定的です）`, 'magic');
-            target.relationWithPlayer -= 20;
+      case 'resourceGain':
+        this.state.resources[magic.effect.resource] += magic.effect.value;
+        this.addLog(`魔法「${magic.name}」により${magic.effect.value}の${magic.effect.resource}を得ました`, 'magic');
+        break;
+
+      case 'directDamage':
+        if (this.state.currentBattle) {
+          let damage = magic.effect.value;
+          // 攻城ボーナスなどがここに入る可能性あり
+
+          this.state.currentBattle.enemyForces.current = Math.max(0, this.state.currentBattle.enemyForces.current - damage);
+          this.state.currentBattle.log.push(`魔法攻撃！ 敵軍に${damage}のダメージ！`);
+          this.addLog(`魔法「${magic.name}」で敵軍にダメージを与えました`, 'magic');
+        }
+        break;
+
+      case 'sabotageFood':
+      case 'sabotagePopulation':
+        if (targetId) {
+          const target = this.state.aiNations.find(n => n.id === targetId);
+          if (target) {
+            if (magic.effect.type === 'sabotagePopulation') {
+              const loss = Math.floor(target.population * (magic.effect.value / 100));
+              target.population -= loss;
+              target.militaryPower = Math.floor(target.population * 0.12); // 戦力も減衰
+              this.addLog(`魔法「${magic.name}」が${target.name}の人口を${loss}人減少させました`, 'magic');
+              target.relationWithPlayer -= 30;
+            } else {
+              // 食糧サボタージュなどはAIの成長を阻害する形などで表現
+              this.addLog(`魔法「${magic.name}」を${target.name}に発動しました（AIへの効果は限定的です）`, 'magic');
+              target.relationWithPlayer -= 20;
+            }
           }
         }
+        break;
+    }
+
+    this.notify();
+    return { success: true };
+  }
+
+  updateActiveEffects(dayProgress) {
+    if (this.state.activeEffects.length === 0) return;
+
+    this.state.activeEffects = this.state.activeEffects.filter(eff => {
+      eff.duration -= dayProgress;
+      if (eff.duration <= 0) {
+        this.addLog(`魔法「${eff.name}」の効果が切れました`, 'domestic');
+        return false;
       }
-      break;
+      return true;
+    });
   }
 
-  this.notify();
-  return { success: true };
-}
+  // ログ追加
+  addLog(message, type = 'domestic') {
+    const time = `${Math.floor(this.state.day)}日`;
+    this.state.eventLog.unshift({
+      id: Date.now(),
+      type,
+      message,
+      time,
+      priority: type === 'important' ? 'high' : 'normal'
+    });
+    if (this.state.eventLog.length > 50) this.state.eventLog.pop();
+  }
 
-updateActiveEffects(dayProgress) {
-  if (this.state.activeEffects.length === 0) return;
+  // セーブデータ削除
+  deleteSave() {
+    console.log('[DEBUG] deleteSave() called. Removing key:', CONSTANTS.SAVE_KEY);
+    localStorage.removeItem(CONSTANTS.SAVE_KEY);
+    console.log('[DEBUG] localStorage.removeItem executed.');
+  }
 
-  this.state.activeEffects = this.state.activeEffects.filter(eff => {
-    eff.duration -= dayProgress;
-    if (eff.duration <= 0) {
-      this.addLog(`魔法「${eff.name}」の効果が切れました`, 'domestic');
-      return false;
+  // --- 市場取引 ---
+  buyResource(type, amount) {
+    const price = CONSTANTS.MARKET_PRICES[type];
+    if (!price) return { success: false, message: '取引できない資源です' };
+
+    // 購入コスト計算（市場手数料を含む簡単なロジック）
+    const cost = Math.ceil(price * amount);
+
+    if (this.state.resources.gold < cost) return { success: false, message: '資金が不足しています' };
+
+    this.state.resources.gold -= cost;
+    this.state.resources[type] += amount;
+    this.addLog(`${amount}個の${type}を購入しました（-${cost}G）`, 'domestic');
+    this.notify();
+    return { success: true };
+  }
+
+  sellResource(type, amount) {
+    const price = CONSTANTS.MARKET_PRICES[type];
+    if (!price) return { success: false, message: '取引できない資源です' };
+
+    if (this.state.resources[type] < amount) return { success: false, message: '在庫が不足しています' };
+
+    // 売却価格は買値の50%
+    const revenue = Math.floor(price * 0.5 * amount);
+
+    this.state.resources[type] -= amount;
+    this.state.resources.gold += revenue;
+    this.addLog(`${amount}個の${type}を売却しました（+${revenue}G）`, 'domestic');
+    this.notify();
+    return { success: true };
+  }
+
+  // --- 諜報 ---
+  executeEspionage(type, targetId) {
+    const nation = this.state.aiNations.find(n => n.id === targetId);
+    if (!nation) return { success: false, message: '対象が見つかりません' };
+    if (nation.isDefeated) return { success: false, message: '征服済みの国家です' };
+
+    let cost = 0;
+    let successRate = 0;
+
+    switch (type) {
+      case 'spy': // 情報収集
+        cost = 500;
+        successRate = 0.8 + (this.state.reputation > 50 ? 0.1 : 0);
+        break;
+      case 'sabotage': // 工作（戦力低下）
+        cost = 1000;
+        successRate = 0.5;
+        break;
+      case 'rumor': // 離間工作（他国との関係悪化）
+        cost = 800;
+        successRate = 0.6;
+        break;
+      default:
+        return { success: false, message: '不明な指令です' };
     }
-    return true;
-  });
-}
 
-// ログ追加
-addLog(message, type = 'domestic') {
-  const time = `${Math.floor(this.state.day)}日`;
-  this.state.eventLog.unshift({
-    id: Date.now(),
-    type,
-    message,
-    time,
-    priority: type === 'important' ? 'high' : 'normal'
-  });
-  if (this.state.eventLog.length > 50) this.state.eventLog.pop();
-}
+    if (this.state.resources.gold < cost) return { success: false, message: `資金が不足しています(${cost}G)` };
+    this.state.resources.gold -= cost;
 
-// セーブデータ削除
-deleteSave() {
-  console.log('[DEBUG] deleteSave() called. Removing key:', CONSTANTS.SAVE_KEY);
-  localStorage.removeItem(CONSTANTS.SAVE_KEY);
-  console.log('[DEBUG] localStorage.removeItem executed.');
-}
-
-// --- 市場取引 ---
-buyResource(type, amount) {
-  const price = CONSTANTS.MARKET_PRICES[type];
-  if (!price) return { success: false, message: '取引できない資源です' };
-
-  // 購入コスト計算（市場手数料を含む簡単なロジック）
-  const cost = Math.ceil(price * amount);
-
-  if (this.state.resources.gold < cost) return { success: false, message: '資金が不足しています' };
-
-  this.state.resources.gold -= cost;
-  this.state.resources[type] += amount;
-  this.addLog(`${amount}個の${type}を購入しました（-${cost}G）`, 'domestic');
-  this.notify();
-  return { success: true };
-}
-
-sellResource(type, amount) {
-  const price = CONSTANTS.MARKET_PRICES[type];
-  if (!price) return { success: false, message: '取引できない資源です' };
-
-  if (this.state.resources[type] < amount) return { success: false, message: '在庫が不足しています' };
-
-  // 売却価格は買値の50%
-  const revenue = Math.floor(price * 0.5 * amount);
-
-  this.state.resources[type] -= amount;
-  this.state.resources.gold += revenue;
-  this.addLog(`${amount}個の${type}を売却しました（+${revenue}G）`, 'domestic');
-  this.notify();
-  return { success: true };
-}
-
-// --- 諜報 ---
-executeEspionage(type, targetId) {
-  const nation = this.state.aiNations.find(n => n.id === targetId);
-  if (!nation) return { success: false, message: '対象が見つかりません' };
-  if (nation.isDefeated) return { success: false, message: '征服済みの国家です' };
-
-  let cost = 0;
-  let successRate = 0;
-
-  switch (type) {
-    case 'spy': // 情報収集
-      cost = 500;
-      successRate = 0.8 + (this.state.reputation > 50 ? 0.1 : 0);
-      break;
-    case 'sabotage': // 工作（戦力低下）
-      cost = 1000;
-      successRate = 0.5;
-      break;
-    case 'rumor': // 離間工作（他国との関係悪化）
-      cost = 800;
-      successRate = 0.6;
-      break;
-    default:
-      return { success: false, message: '不明な指令です' };
-  }
-
-  if (this.state.resources.gold < cost) return { success: false, message: `資金が不足しています(${cost}G)` };
-  this.state.resources.gold -= cost;
-
-  if (Math.random() < successRate) {
-    if (type === 'spy') {
-      // 詳細情報をログに出す
-      const info = `【${nation.name}】 戦力:${nation.militaryPower} 経済:${nation.economicPower} 性格:${nation.personality} 態度:${nation.relationWithPlayer.toFixed(0)}`;
-      this.addLog(`諜報成功: ${info}`, 'diplomatic');
-      return { success: true, message: info };
-    } else if (type === 'sabotage') {
-      const damage = Math.floor(nation.militaryPower * 0.2);
-      nation.militaryPower -= damage;
-      this.addLog(`工作成功: ${nation.name}の軍事システムを妨害し、戦力を低下させました`, 'military');
-      return { success: true };
-    } else if (type === 'rumor') {
-      nation.relationWithPlayer -= 30; // プレイヤーへの態度が悪化？それとも他国？
-      // ここではシンプルに「孤立化させる」＝全AI国家との関係悪化とするのが理想だが、データ構造上持っていない
-      // 代わりに「混乱」状態にして行動不能にするか、あるいはプレイヤーへの態度がさらに悪化して暴発させるか
-      this.addLog(`流言により${nation.name}国内が混乱しています`, 'diplomatic');
-      nation.lastDiplomacyDay = this.state.day + 30; // 暫く外交不可
-      return { success: true };
+    if (Math.random() < successRate) {
+      if (type === 'spy') {
+        // 詳細情報をログに出す
+        const info = `【${nation.name}】 戦力:${nation.militaryPower} 経済:${nation.economicPower} 性格:${nation.personality} 態度:${nation.relationWithPlayer.toFixed(0)}`;
+        this.addLog(`諜報成功: ${info}`, 'diplomatic');
+        return { success: true, message: info };
+      } else if (type === 'sabotage') {
+        const damage = Math.floor(nation.militaryPower * 0.2);
+        nation.militaryPower -= damage;
+        this.addLog(`工作成功: ${nation.name}の軍事システムを妨害し、戦力を低下させました`, 'military');
+        return { success: true };
+      } else if (type === 'rumor') {
+        nation.relationWithPlayer -= 30; // プレイヤーへの態度が悪化？それとも他国？
+        // ここではシンプルに「孤立化させる」＝全AI国家との関係悪化とするのが理想だが、データ構造上持っていない
+        // 代わりに「混乱」状態にして行動不能にするか、あるいはプレイヤーへの態度がさらに悪化して暴発させるか
+        this.addLog(`流言により${nation.name}国内が混乱しています`, 'diplomatic');
+        nation.lastDiplomacyDay = this.state.day + 30; // 暫く外交不可
+        return { success: true };
+      }
+    } else {
+      nation.relationWithPlayer -= 20;
+      this.addLog(`諜報員が捕縛されました... ${nation.name}との関係が悪化しました`, 'important');
+      if (nation.relationWithPlayer < -80 && Math.random() < 0.5) {
+        this.declareWar(nation);
+      }
+      return { success: false, message: '任務に失敗しました' };
     }
-  } else {
-    nation.relationWithPlayer -= 20;
-    this.addLog(`諜報員が捕縛されました... ${nation.name}との関係が悪化しました`, 'important');
-    if (nation.relationWithPlayer < -80 && Math.random() < 0.5) {
-      this.declareWar(nation);
+  }
+
+  // --- 周回要素 ---
+  calculateScore() {
+    let score = 0;
+    score += this.state.population.total * 10;
+    score += Math.floor(this.state.resources.gold / 100);
+    score += this.state.technologies.filter(t => t.isResearched).length * 500;
+    score += this.state.conqueredNations * 1000;
+    if (this.state.victory) score += 10000;
+
+    // 魔王討伐ボーナスなどはgameOverReasonで判定
+    if (this.state.victoryType === 'domination') score += 5000;
+
+    return score;
+  }
+
+  savePrestige(points) {
+    try {
+      const current = parseInt(localStorage.getItem('axinode_prestige') || '0');
+      localStorage.setItem('axinode_prestige', current + points);
+    } catch (e) {
+      console.error('周回ポイント保存失敗', e);
     }
-    return { success: false, message: '任務に失敗しました' };
   }
-}
 
-// --- 周回要素 ---
-calculateScore() {
-  let score = 0;
-  score += this.state.population.total * 10;
-  score += Math.floor(this.state.resources.gold / 100);
-  score += this.state.technologies.filter(t => t.isResearched).length * 500;
-  score += this.state.conqueredNations * 1000;
-  if (this.state.victory) score += 10000;
-
-  // 魔王討伐ボーナスなどはgameOverReasonで判定
-  if (this.state.victoryType === 'domination') score += 5000;
-
-  return score;
-}
-
-savePrestige(points) {
-  try {
-    const current = parseInt(localStorage.getItem('axinode_prestige') || '0');
-    localStorage.setItem('axinode_prestige', current + points);
-  } catch (e) {
-    console.error('周回ポイント保存失敗', e);
+  getPrestige() {
+    return parseInt(localStorage.getItem('axinode_prestige') || '0');
   }
-}
 
-getPrestige() {
-  return parseInt(localStorage.getItem('axinode_prestige') || '0');
-}
+  recruitUnit(type, template) {
+    if (type === 'hero') {
+      this.state.heroes.push({ ...template, hiredAt: this.state.day });
+      this.addLog(`英雄「${template.name}」を雇用しました！`, 'military');
 
-recruitUnit(type, template) {
-  if (type === 'hero') {
-    this.state.heroes.push({ ...template, hiredAt: this.state.day });
-    this.addLog(`英雄「${template.name}」を雇用しました！`, 'military');
-
-    // 即時効果があれば適用
-    if (template.specialAbility.effect.trigger === 'onHire') {
-      // 実装例: 関係改善など
+      // 即時効果があれば適用
+      if (template.specialAbility.effect.trigger === 'onHire') {
+        // 実装例: 関係改善など
+      }
+    } else if (type === 'specialist') {
+      this.state.specialists.push({ ...template, hiredAt: this.state.day });
+      this.addLog(`スペシャリスト「${template.name}」を雇用しました！`, 'domestic');
     }
-  } else if (type === 'specialist') {
-    this.state.specialists.push({ ...template, hiredAt: this.state.day });
-    this.addLog(`スペシャリスト「${template.name}」を雇用しました！`, 'domestic');
   }
-}
 
-getSpecialistTypeName(type) {
-  const types = { blacksmith: '鍛冶師', merchant: '商人', farmer: '農場長' };
-  return types[type] || '専門家';
-}
-
-// --- ニューゲーム（周回ボーナス対応） ---
-newGame(bonuses = {}) {
-  this.deleteSave(); // 古いデータを消す
-  this.state = this.createInitialState();
-
-  // ボーナス適用
-  if (bonuses.initial_gold_500) this.state.resources.gold += 500;
-  if (bonuses.initial_gold_1000) this.state.resources.gold += 1000;
-  if (bonuses.initial_pop_5) this.addPopulation(5);
-  if (bonuses.initial_soldier_10) {
-    this.addPopulation(10);
-    this.state.population.unemployed -= 10;
-    this.state.population.soldiers += 10;
-    this.state.military.totalSoldiers += 10;
-    this.state.military.infantry += 10;
+  getSpecialistTypeName(type) {
+    const types = { blacksmith: '鍛冶師', merchant: '商人', farmer: '農場長' };
+    return types[type] || '専門家';
   }
-  // 研究速度などは activeEffects や technologies の補正値として入れる必要があるが、
-  // ここでは簡易的に resources に特別なフラグを持たせるか、初期技術として処理する
 
-  this.addLog('新しい時代が始まりました', 'important');
-  this.notify();
-  this.saveGame();
-}
+  // --- ニューゲーム（周回ボーナス対応） ---
+  newGame(bonuses = {}) {
+    this.deleteSave(); // 古いデータを消す
+    this.state = this.createInitialState();
+
+    // ボーナス適用
+    if (bonuses.initial_gold_500) this.state.resources.gold += 500;
+    if (bonuses.initial_gold_1000) this.state.resources.gold += 1000;
+    if (bonuses.initial_pop_5) this.addPopulation(5);
+    if (bonuses.initial_soldier_10) {
+      this.addPopulation(10);
+      this.state.population.unemployed -= 10;
+      this.state.population.soldiers += 10;
+      this.state.military.totalSoldiers += 10;
+      this.state.military.infantry += 10;
+    }
+    // 研究速度などは activeEffects や technologies の補正値として入れる必要があるが、
+    // ここでは簡易的に resources に特別なフラグを持たせるか、初期技術として処理する
+
+    this.addLog('新しい時代が始まりました', 'important');
+    this.notify();
+    this.saveGame();
+  }
 }
