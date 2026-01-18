@@ -261,6 +261,15 @@ export class UIManager {
           <div class="mt-2 text-xs text-gray-500" id="dom-production"></div>
         </div>
 
+        <!-- 財政収支 -->
+        <div id="dom-income-info"></div>
+
+        <!-- 市場取引 -->
+        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
+          <div class="text-sm text-gray-300 mb-2">市場取引 (買値/売値)</div>
+          <div class="space-y-2" id="dom-market-list"></div>
+        </div>
+
         <div id="dom-built-area"></div>
         <div id="dom-queue-area"></div>
 
@@ -361,6 +370,7 @@ export class UIManager {
       taxRate: document.getElementById('dom-tax-rate'),
       resList: document.getElementById('dom-res-list'),
       production: document.getElementById('dom-production'),
+      incomeInfo: document.getElementById('dom-income-info'),
       builtArea: document.getElementById('dom-built-area'),
       queueArea: document.getElementById('dom-queue-area'),
       buildingRows: buildingRows,
@@ -372,6 +382,41 @@ export class UIManager {
         unemployed: document.getElementById('pop-val-unemployed'),
       }
     };
+
+    // 市場UI初期化
+    const marketContainer = document.getElementById('dom-market-list');
+    const marketRows = {};
+    const resNames = { food: '食糧', ore: '鉱石', weapons: '武器', armor: '鎧' };
+
+    ['food', 'ore', 'weapons', 'armor'].forEach(res => {
+      if (!this.engine.CONSTANTS.MARKET_PRICES[res]) return;
+
+      const row = document.createElement('div');
+      row.className = 'flex justify-between items-center text-xs border-b border-gray-700 pb-1 last:border-0';
+      row.innerHTML = `
+        <div class="w-16 text-gray-400">${resNames[res]}</div>
+        <div class="text-yellow-500 w-20 text-center" id="mkt-price-${res}"></div>
+        <div class="flex gap-1">
+          <button id="mkt-buy-${res}" class="px-2 py-1 bg-green-900 text-green-200 rounded hover:bg-green-800 text-[10px]">買(10)</button>
+          <button id="mkt-sell-${res}" class="px-2 py-1 bg-red-900 text-red-200 rounded hover:bg-red-800 text-[10px]">売(10)</button>
+        </div>
+      `;
+      marketContainer.appendChild(row);
+
+      const btnBuy = row.querySelector(`#mkt-buy-${res}`);
+      const btnSell = row.querySelector(`#mkt-sell-${res}`);
+
+      // 10個単位で取引
+      btnBuy.onclick = () => this.engine.buyResource(res, 10);
+      btnSell.onclick = () => this.engine.sellResource(res, 10);
+
+      marketRows[res] = {
+        price: row.querySelector(`#mkt-price-${res}`),
+        btnBuy,
+        btnSell
+      };
+    });
+    this.domCache.domestic.marketRows = marketRows;
   }
 
   updateDomesticTab(state) {
@@ -387,6 +432,27 @@ export class UIManager {
     c.popValues.craftsmen.textContent = state.population.craftsmen;
     c.popValues.soldiers.textContent = state.population.soldiers;
     c.popValues.unemployed.textContent = state.population.unemployed;
+
+    // 市場更新
+    if (c.marketRows) {
+      Object.entries(c.marketRows).forEach(([res, els]) => {
+        const price = this.engine.CONSTANTS.MARKET_PRICES[res];
+        const buyPrice = price;
+        const sellPrice = Math.floor(price * 0.5);
+
+        els.price.textContent = `${buyPrice}G / ${sellPrice}G`;
+
+        // 買えるか（10個分）
+        const canBuy = state.resources.gold >= buyPrice * 10;
+        els.btnBuy.disabled = !canBuy;
+        els.btnBuy.className = `px-2 py-1 rounded text-xs ${canBuy ? 'bg-green-900 text-green-200 hover:bg-green-800' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`;
+
+        // 売れるか（10個分）
+        const canSell = state.resources[res] >= 10;
+        els.btnSell.disabled = !canSell;
+        els.btnSell.className = `px-2 py-1 rounded text-xs ${canSell ? 'bg-red-900 text-red-200 hover:bg-red-800' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`;
+      });
+    }
 
     // 資源
     c.resList.innerHTML = `
@@ -404,12 +470,38 @@ export class UIManager {
     const foodNet = foodProd - foodCons;
     c.production.innerHTML = `食糧: +${foodProd.toFixed(1)}/日 -${foodCons.toFixed(1)}/日 = <span class="${foodNet >= 0 ? 'text-green-400' : 'text-red-400'}">${foodNet >= 0 ? '+' : ''}${foodNet.toFixed(1)}/日</span>`;
 
+    // 資金収支（日次）
+    const dailyTax = Calcs.taxIncome(state) / 30;
+    const dailyExpenses = Calcs.maintenance(state) / 30;
+    const dailyProfit = dailyTax - dailyExpenses;
+
+    c.incomeInfo.innerHTML = `
+      <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
+         <div class="text-sm text-yellow-500 font-bold mb-2">💰 財政収支 (日次)</div>
+         <div class="text-xs text-gray-300 space-y-1">
+           <div class="flex justify-between"><span>収入(税):</span> <span class="text-green-400">+${dailyTax.toFixed(1)}G/日</span></div>
+           <div class="flex justify-between"><span>支出(軍):</span> <span class="text-red-400">-${dailyExpenses.toFixed(1)}G/日</span></div>
+           <div class="border-t border-gray-600 my-1 pt-1 flex justify-between font-bold">
+             <span>収支:</span> 
+             <span class="${dailyProfit >= 0 ? 'text-green-400' : 'text-red-400'}">${dailyProfit >= 0 ? '+' : ''}${dailyProfit.toFixed(1)}G / 日</span>
+           </div>
+           <div class="text-gray-500 mt-1">※人口と満足度、税率(${Math.round(state.taxRate * 100)}%)に依存</div>
+         </div>
+      </div>
+    `;
+
     // 建設済み
     if (state.buildings.length > 0) {
+      const counts = {};
+      state.buildings.forEach(b => {
+        counts[b.name] = (counts[b.name] || 0) + 1;
+      });
+      const builtList = Object.entries(counts).map(([name, count]) => `${name}${count > 1 ? ' x' + count : ''}`).join(', ');
+
       c.builtArea.innerHTML = `
         <div class="mb-4 bg-green-900/30 p-2 rounded border border-green-800">
           <div class="text-xs text-green-400 mb-1">✓ 建設済み施設:</div>
-          <div class="text-sm text-gray-300">${state.buildings.map(b => b.name).join(', ')}</div>
+          <div class="text-sm text-gray-300">${builtList}</div>
         </div>`;
     } else {
       c.builtArea.innerHTML = '';
@@ -492,8 +584,22 @@ export class UIManager {
           <div id="mil-equipment" class="text-xs"></div>
         </div>
 
+        <!-- 兵種編成 -->
+        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
+          <div class="text-sm text-gray-300 mb-2">部隊編成</div>
+          <div class="text-xs text-gray-500 mb-2">※未割り当ての兵士を各兵種に配属できます</div>
+          <div id="mil-formation" class="space-y-2"></div>
+        </div>
+
+        <div class="mb-4">
+          <h3 class="text-sm font-bold text-yellow-400 mb-2">英雄・将軍</h3>
+          <div id="hero-list" class="space-y-2">
+            <div class="text-xs text-gray-500">英雄はイベントで雇用できます</div>
+          </div>
+        </div>
+
         <!-- 他国への侵攻 -->
-        <h3 class="text-sm font-bold text-gray-400 mb-2">侵攻可能な国家</h3>
+        <h3 class="text-sm font-bold text-red-400 mb-2">作戦行動</h3>
         <div id="mil-nations-list"></div>
       </div>
     `;
@@ -530,6 +636,8 @@ export class UIManager {
     this.domCache.military = {
       overview: document.getElementById('mil-overview'),
       equipment: document.getElementById('mil-equipment'),
+      formation: document.getElementById('mil-formation'),
+      heroList: document.getElementById('hero-list'),
       nationCards: nationCards
     };
   }
@@ -555,6 +663,65 @@ export class UIManager {
       <div>武器: ${Math.floor(weapons)} / ${soldiers}必要 (${soldiers > 0 ? Math.min(100, Math.floor(weapons / soldiers * 100)) : 100}%)</div>
       <div>鎧: ${Math.floor(armor)} / ${soldiers}必要 (${soldiers > 0 ? Math.min(100, Math.floor(armor / soldiers * 100)) : 100}%)</div>
     `;
+
+    // 兵種編成UI更新
+    const m = state.military;
+    const infantry = m.infantry || 0;
+    const archers = m.archers || 0;
+    const cavalry = m.cavalry || 0;
+    const assignedTotal = infantry + archers + cavalry;
+    let unassigned = Math.max(0, m.totalSoldiers - assignedTotal);
+
+    // 技術チェック
+    // データ構造が変わったかもしれないので安全に取得
+    const hasArchery = state.technologies.some(t => t.id === 'archery' && t.isResearched);
+    const hasRiding = state.technologies.some(t => t.id === 'horse_riding' && t.isResearched);
+    // 槍兵訓練は歩兵強化とするため編成要件ではないとするが、将来のためにチェック
+    // const hasSpear = state.technologies.some(t => t.id === 'spear_training' && t.isResearched);
+
+    const types = [
+      { id: 'infantry', name: '歩兵', count: infantry, icon: '⚔️', desc: '対騎兵◎', enabled: true },
+      { id: 'archers', name: '弓兵', count: archers, icon: '🏹', desc: '防衛◎', enabled: hasArchery, req: '弓術' },
+      { id: 'cavalry', name: '騎兵', count: cavalry, icon: '🐎', desc: '野戦◎', enabled: hasRiding, req: '騎兵' }
+    ];
+
+    c.formation.innerHTML = `
+      <div class="mb-2 text-xs text-center p-1 bg-gray-900 rounded">
+        未割り当て: <span class="${unassigned > 0 ? 'text-green-400 font-bold' : 'text-gray-500'}">${unassigned}人</span>
+      </div>
+      ${types.map(t => `
+        <div class="flex items-center justify-between p-2 bg-gray-900/50 rounded ${t.enabled ? '' : 'opacity-50'}">
+          <div class="flex-1">
+            <div class="text-sm font-bold text-gray-200">${t.icon} ${t.name}</div>
+            <div class="text-[10px] text-gray-400">${t.desc}</div>
+            ${!t.enabled ? `<div class="text-[10px] text-red-400">要: ${t.req}</div>` : ''}
+          </div>
+          <div class="flex items-center gap-1">
+            <button onclick="window.game.ui.changeFormation('${t.id}', -10)" class="w-6 h-6 bg-gray-700 hover:bg-gray-600 rounded text-xs" ${t.count < 10 ? 'disabled' : ''}>-</button>
+            <button onclick="window.game.ui.changeFormation('${t.id}', -1)" class="w-6 h-6 bg-gray-700 hover:bg-gray-600 rounded text-xs" ${t.count < 1 ? 'disabled' : ''}>-</button>
+            <span class="w-10 text-center font-bold text-white">${t.count}</span>
+            <button onclick="window.game.ui.changeFormation('${t.id}', 1)" class="w-6 h-6 bg-blue-700 hover:bg-blue-600 rounded text-xs" ${!t.enabled || unassigned < 1 ? 'disabled' : ''}>+</button>
+            <button onclick="window.game.ui.changeFormation('${t.id}', 10)" class="w-6 h-6 bg-blue-700 hover:bg-blue-600 rounded text-xs" ${!t.enabled || unassigned < 10 ? 'disabled' : ''}>+</button>
+          </div>
+        </div>
+      `).join('')}
+    `;
+
+    // 英雄リスト更新
+    const heroes = state.heroes || [];
+    if (heroes.length > 0) {
+      c.heroList.innerHTML = heroes.map(h => `
+            <div class="bg-gray-800 p-2 rounded border border-yellow-700">
+                <div class="flex justify-between items-center">
+                    <span class="font-bold text-yellow-500">${h.name}</span>
+                    <span class="text-xs text-gray-400">給与: ${h.salary}G</span>
+                </div>
+                <div class="text-xs text-gray-300 mt-1">戦闘力+${h.combatPower} / ${h.specialAbility.description}</div>
+            </div>
+        `).join('');
+    } else {
+      c.heroList.innerHTML = '<div class="text-xs text-gray-500">英雄はイベントで雇用できます</div>';
+    }
 
     // 国家リスト更新
     state.aiNations.forEach(nation => {
@@ -660,7 +827,7 @@ export class UIManager {
           ${state.researchQueue.map(r => `
             <div class="text-sm flex justify-between">
               <span class="text-white">${r.name}</span>
-              <span class="text-purple-400">${Math.ceil(r.remainingTime)}秒</span>
+              <span class="text-purple-300">残り ${r.remainingTime.toFixed(1)}秒</span>
             </div>`).join('')}
         </div>`;
     } else {
@@ -761,48 +928,52 @@ export class UIManager {
     `;
 
     const nationCache = {};
-    const list = document.getElementById('dip-nations-list');
-
     state.aiNations.forEach(nation => {
       const card = document.createElement('div');
-      card.className = "bg-gray-800 p-3 rounded mb-3 border border-gray-700";
+      card.className = "bg-gray-800 p-3 rounded mb-2 border border-gray-700";
       card.innerHTML = `
-        <div class="flex justify-between items-start mb-2">
-          <div>
-            <div class="font-bold text-blue-300" id="dip-n-${nation.id}-name">${nation.name}</div>
-            <div class="text-xs text-gray-400">${nation.description}</div>
+        <div class="flex justify-between items-start">
+          <div class="flex-1">
+            <div class="font-bold text-sm text-yellow-300 flex items-center gap-2">
+              ${nation.name}
+              <span class="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400 status-badge" id="dip-status-${nation.id}"></span>
+            </div>
+            <div class="text-xs text-gray-400 mt-1">性格: ${nation.personality}</div>
+            <div class="text-xs mt-1 relation-text" id="dip-relation-${nation.id}"></div>
           </div>
-          <div class="text-right">
-            <div class="text-xs text-gray-500">性格</div>
-            <div class="text-sm text-gray-300">${PERSONALITY_NAMES[nation.personality] || nation.personality}</div>
+          <div class="flex flex-col gap-1 w-24">
+            <div class="flex space-x-1 mt-2">
+              <button class="btn-trade flex-1 px-2 py-1 rounded text-xs font-bold bg-blue-900 text-blue-200 border border-blue-700">貿易協定</button>
+              <button class="btn-treaty flex-1 px-2 py-1 rounded text-xs font-bold bg-purple-900 text-purple-200 border border-purple-700">条約交渉</button>
+            </div>
+            <div class="flex space-x-1 mt-1">
+              <button class="btn-spy flex-1 px-2 py-1 rounded text-xs font-bold bg-gray-700 text-gray-300 border border-gray-600">諜報</button>
+              <button class="btn-war flex-1 px-2 py-1 rounded text-xs font-bold bg-red-900 text-red-200 border border-red-700">宣戦布告</button>
+            </div>
           </div>
-        </div>
-        <div class="grid grid-cols-3 gap-2 text-xs mb-2">
-          <div><span class="text-gray-500">人口:</span> <span id="dip-n-${nation.id}-pop" class="text-white"></span></div>
-          <div><span class="text-gray-500">軍事力:</span> <span id="dip-n-${nation.id}-mil" class="text-orange-400"></span></div>
-          <div><span class="text-gray-500">関係:</span> <span id="dip-n-${nation.id}-rel"></span></div>
-        </div>
-        <div id="dip-n-${nation.id}-status" class="text-xs text-green-400 mb-2"></div>
-        <div class="flex gap-2">
-          <button id="dip-n-${nation.id}-btn-trade" class="flex-1 px-3 py-1.5 rounded text-xs font-bold bg-gray-700"></button>
         </div>
       `;
-      list.appendChild(card);
+      this.els.mainContent.querySelector('#dip-nations-list').appendChild(card);
 
-      const btnTrade = card.querySelector(`#dip-n-${nation.id}-btn-trade`);
-      btnTrade.onclick = () => this.triggerTradeAgreement(nation.id);
+      // イベント
+      const btns = {
+        trade: card.querySelector('.btn-trade'),
+        treaty: card.querySelector('.btn-treaty'),
+        spy: card.querySelector('.btn-spy'),
+        war: card.querySelector('.btn-war')
+      };
+
+      btns.trade.onclick = () => this.engine.processDiplomaticAction(nation);
+      btns.treaty.onclick = () => this.showTreatyModal(nation);
+      btns.spy.onclick = () => this.showSpyModal(nation); // Assuming showSpyModal will be implemented or triggerEspionage will be renamed
+      btns.war.onclick = () => this.engine.declareWar(nation);
 
       nationCache[nation.id] = {
-        card: card,
-        name: card.querySelector(`#dip-n-${nation.id}-name`),
-        pop: card.querySelector(`#dip-n-${nation.id}-pop`),
-        mil: card.querySelector(`#dip-n-${nation.id}-mil`),
-        rel: card.querySelector(`#dip-n-${nation.id}-rel`),
-        status: card.querySelector(`#dip-n-${nation.id}-status`),
-        btnTrade: btnTrade
+        status: card.querySelector('.status-badge'),
+        relation: card.querySelector('.relation-text'),
+        btns: btns
       };
     });
-
     this.domCache.diplomacy = {
       reputation: document.getElementById('dip-reputation'),
       repText: document.getElementById('dip-rep-text'),
@@ -810,54 +981,115 @@ export class UIManager {
     };
   }
 
+  // 諜報メニュー表示
+  triggerEspionage(nationId) {
+    const nation = this.engine.state.aiNations.find(n => n.id === nationId);
+    if (!nation) return;
+
+    this.showEventModal({
+      title: `${nation.name}への諜報活動`,
+      description: '実行する作戦を選択してください。',
+      choices: [
+        {
+          text: 'スパイ派遣 (500G)',
+          description: '軍事・経済情報を収集します (成功率:高)',
+          effect: () => this.engine.executeEspionage('spy', nationId)
+        },
+        {
+          text: '破壊工作 (1000G)',
+          description: '軍事施設を妨害し戦力を低下させます (成功率:中)',
+          effect: () => this.engine.executeEspionage('sabotage', nationId)
+        },
+        {
+          text: '流言飛語 (800G)',
+          description: '国内を混乱させ外交・軍事行動を封じます (成功率:中)',
+          effect: () => this.engine.executeEspionage('rumor', nationId)
+        },
+        {
+          text: '中止',
+          description: '何もせず戻ります',
+          effect: () => { }
+        }
+      ]
+    }, (idx) => {
+      // 選択後のコールバック（ログはengine側で出る）
+      const choices = [
+        () => this.engine.executeEspionage('spy', nationId),
+        () => this.engine.executeEspionage('sabotage', nationId),
+        () => this.engine.executeEspionage('rumor', nationId),
+        () => { }
+      ];
+      if (choices[idx]) choices[idx]();
+    });
+  }
+  // 不要なコードを削除し、updateDiplomacyTabを実装
+
+
   updateDiplomacyTab(state) {
     const c = this.domCache.diplomacy;
     if (!c) return;
 
-    c.reputation.textContent = state.reputation;
-    const repColor = state.reputation > 20 ? 'text-green-400' : state.reputation < -20 ? 'text-red-400' : 'text-yellow-400';
-    c.reputation.className = `text-2xl font-bold ${repColor}`;
-    c.repText.textContent = state.reputation >= 50 ? '名君' : state.reputation >= 0 ? '普通' : '悪評';
+    // 評判更新
+    const rep = state.reputation || 0;
+    c.reputation.textContent = rep;
+    c.reputation.className = `text-2xl font-bold ${rep > 20 ? 'text-green-400' : rep < -20 ? 'text-red-400' : 'text-yellow-400'}`;
+
+    // 評判ランク判定
+    let repLabel = '普通';
+    const R = this.engine.CONSTANTS.REPUTATION;
+    if (rep >= R.LEGEND) repLabel = '伝説の英雄';
+    else if (rep >= R.GREAT) repLabel = '名君';
+    else if (rep >= R.NORMAL) repLabel = '普通';
+    else if (rep >= R.NEUTRAL) repLabel = '無名';
+    else if (rep >= R.BAD) repLabel = '悪評';
+    else if (rep >= R.TYRANT) repLabel = '暴君';
+    else repLabel = '大悪党';
+    c.repText.textContent = repLabel;
 
     state.aiNations.forEach(nation => {
       const nc = c.nations[nation.id];
       if (!nc) return;
 
       if (nation.isDefeated) {
-        nc.card.className = "bg-gray-800 p-3 rounded mb-3 border border-gray-700 opacity-50";
-        nc.name.textContent = `${nation.name} (征服済み)`;
-        nc.btnTrade.style.display = 'none';
-        nc.status.textContent = '';
+        nc.status.parentElement.parentElement.parentElement.parentElement.className = "bg-gray-800 p-3 rounded mb-2 border border-gray-700 opacity-50";
+        nc.status.textContent = '征服済み';
+        nc.status.className = "text-xs px-1.5 py-0.5 rounded bg-gray-800 text-red-500 border border-red-900";
+        nc.btns.trade.style.display = 'none';
+        nc.btns.spy.style.display = 'none';
+        nc.btns.war.style.display = 'none';
         return;
       }
 
-      nc.card.className = "bg-gray-800 p-3 rounded mb-3 border border-gray-700";
-      nc.pop.textContent = nation.population;
-      nc.mil.textContent = nation.militaryPower;
-      nc.rel.textContent = Math.floor(nation.relationWithPlayer);
-
+      nc.relation.textContent = `友好度: ${Math.floor(nation.relationWithPlayer)}`;
       const relColor = nation.relationWithPlayer > 20 ? 'text-green-400' :
         nation.relationWithPlayer < -20 ? 'text-red-400' : 'text-yellow-400';
-      nc.rel.className = relColor;
+      nc.relation.className = `text-xs mt-1 ${relColor}`;
 
+      // 貿易ボタン
       const hasTrade = nation.treaties.some(t => t.type === 'trade');
-      const tradeDuration = nation.treaties.find(t => t.type === 'trade')?.duration || 0;
-
       if (hasTrade) {
-        nc.status.textContent = `✓ 貿易協定締結中（残り${tradeDuration}ヶ月）`;
-        nc.btnTrade.style.display = 'none';
+        nc.btns.trade.disabled = true;
+        nc.btns.trade.textContent = '協定済';
+        nc.btns.trade.className = "w-full text-xs font-bold bg-gray-700 text-green-500 border border-green-700 cursor-not-allowed";
       } else {
-        nc.status.textContent = '';
-        nc.btnTrade.style.display = 'block';
+        const canAffordTrade = state.resources.gold >= 200; // 仮コスト
+        nc.btns.trade.disabled = !canAffordTrade;
+        nc.btns.trade.textContent = '貿易協定';
+        nc.btns.trade.className = `w-full text-xs font-bold ${canAffordTrade ? 'bg-blue-900 text-blue-200 hover:bg-blue-800' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`;
+      }
 
-        const baseCost = 200;
-        const relationModifier = nation.relationWithPlayer < 0 ? 1.5 : 1.0;
-        const tradeCost = Math.floor(baseCost * relationModifier);
-        const canAfford = state.resources.gold >= tradeCost;
-
-        nc.btnTrade.textContent = `貿易協定（${tradeCost}G）`;
-        nc.btnTrade.className = `flex-1 px-3 py-1.5 rounded text-xs font-bold ${canAfford ? 'bg-green-600 hover:bg-green-500 text-white' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`;
-        nc.btnTrade.disabled = !canAfford;
+      // 戦争状態更新
+      if (nation.isAtWar) {
+        nc.status.textContent = '戦争中';
+        nc.status.className = "text-xs px-1.5 py-0.5 rounded bg-red-900 text-red-200";
+        nc.btns.trade.style.display = 'none';
+        nc.btns.treaty.style.display = 'none'; // 戦時中は条約不可
+        nc.btns.war.style.display = 'none';
+      } else {
+        nc.status.textContent = '平和';
+        nc.status.className = "text-xs px-1.5 py-0.5 rounded bg-gray-700 text-green-400";
+        nc.btns.war.style.display = 'block';
+        nc.btns.treaty.style.display = 'block';
       }
     });
   }
@@ -970,6 +1202,45 @@ export class UIManager {
     });
   }
 
+  // --- 情報タブ ---
+  initInfoTab() {
+    this.els.mainContent.innerHTML = `
+      <div class="p-4 pb-24 overflow-y-auto h-full">
+        <h2 class="text-lg font-bold text-gray-200 mb-3 border-b border-gray-700 pb-2">国家情報</h2>
+        
+        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
+          <h3 class="text-sm font-bold text-gray-400 mb-2">統計情報</h3>
+          <div id="info-stats" class="space-y-1 text-sm"></div>
+        </div>
+
+        <div class="mb-4 bg-gray-800 p-3 rounded border border-gray-700">
+          <h3 class="text-sm font-bold text-gray-400 mb-2">勝利条件状況</h3>
+          <div id="info-victory" class="space-y-2 text-sm"></div>
+        </div>
+
+        <div class="mb-4">
+          <button id="btn-save" class="w-full mb-2 bg-blue-700 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">手動セーブ</button>
+          <button id="btn-load" class="w-full mb-2 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded">手動ロード</button>
+          <button id="btn-newgame" class="w-full bg-red-900/50 hover:bg-red-800 text-white font-bold py-2 px-4 rounded border border-red-700">NEW GAME（停止してから行ってください）</button>
+        </div>
+        
+        <div class="text-center text-xs text-gray-600 mt-8">
+          AXINODE v1.0.0
+        </div>
+      </div>
+    `;
+
+    this.domCache.info = {
+      stats: document.getElementById('info-stats'),
+      victory: document.getElementById('info-victory')
+    };
+
+    // ボタンイベントの設定
+    document.getElementById('btn-save').onclick = () => this.triggerSave();
+    document.getElementById('btn-load').onclick = () => this.triggerLoad();
+    document.getElementById('btn-newgame').onclick = () => this.triggerNewGame();
+  }
+
   updateInfoTab(state) {
     const c = this.domCache.info;
     if (!c) return;
@@ -998,6 +1269,46 @@ export class UIManager {
       <div class="${dimMagic?.isResearched && state.resources.gold >= 100000 ? 'text-green-400' : 'text-gray-400'}">🔬 技術勝利: 次元魔法 + 100,000G (${dimMagic?.isResearched ? '✓' : '✗'} / ${Math.floor(state.resources.gold)}/100,000G)</div>
       <div class="${state.resources.gold >= 50000 && allTrade ? 'text-green-400' : 'text-gray-400'}">💰 経済勝利: 全国と貿易 + 50,000G (${allTrade ? '✓' : '✗'} / ${Math.floor(state.resources.gold)}/50,000G)</div>
     `;
+  }
+
+  // --- イベントハンドラ ---
+  triggerSave() {
+    if (this.engine.saveGame()) {
+      this.showToast('セーブしました', 'success');
+    } else {
+      this.showToast('セーブできませんでした', 'error');
+    }
+  }
+
+  triggerLoad() {
+    if (this.engine.loadGame()) {
+      this.showToast('ロードしました', 'success');
+      // 描画更新
+      this.renderedTab = null;
+      this.render(this.engine.state);
+    } else {
+      this.showToast('ロード失敗またはデータなし', 'error');
+    }
+  }
+  triggerNewGame() {
+    if (confirm('現在のデータを削除して最初から始めますか？')) {
+      // 進行中の処理と競合しないよう、まずゲームを停止させる
+      this.engine.state.isPaused = true;
+      // ニューゲーム処理中フラグを立てる（unload時のセーブ防止）
+      window.isNewGameProcessing = true;
+
+      // 念には念を入れて、削除 -> 初期化 -> 保存 -> リロードを行う
+      this.engine.deleteSave();
+      this.engine.newGame(); // ここで初期化
+      this.engine.saveGame(); // 明示的に初期状態を保存
+
+      this.showToast('データを初期化しています...', 'important');
+
+      // 書き込み完了を確実に待つために少し遅延させる
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+    }
   }
 
   // --- 戦闘画面 ---
@@ -1113,12 +1424,141 @@ export class UIManager {
             <div>最終人口: ${state.population.total}人</div>
             <div>最終資金: ${Math.floor(state.resources.gold)}G</div>
           </div>
-          <button onclick="window.game.ui.triggerNewGame()" class="px-6 py-3 rounded font-bold bg-blue-600 hover:bg-blue-500 text-white">
+          <button onclick="window.game.engine.deleteSave(); window.game.engine.newGame(); window.game.ui.renderedTab=null;" class="px-6 py-3 rounded font-bold bg-blue-600 hover:bg-blue-500 text-white">
             🔄 ニューゲーム
           </button>
         </div>
       </div>
     `;
+  }
+
+  // --- イベントモーダル ---
+  showEventModal(event, onChoice) {
+    const existing = document.getElementById('event-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'event-modal';
+    modal.className = 'fixed inset-0 bg-black/90 flex items-center justify-center z-[100] animate-fade-in';
+
+    // 選択肢ボタンの生成
+    const choicesHtml = event.choices.map((choice, index) => {
+      // コストチェック（簡易版: engine側で判定した結果を受け取るのが理想だが、ここでは表示のみ）
+      // 実際はonChoiceでインデックスを返し、エンジン側で処理する
+      return `
+        <button data-index="${index}" class="w-full text-left p-4 rounded bg-gray-700 hover:bg-gray-600 border border-gray-600 hover:border-purple-500 transition-colors group">
+          <div class="font-bold text-white group-hover:text-purple-300">▶ ${choice.text}</div>
+          ${choice.description ? `<div class="text-xs text-gray-400 mt-1 pl-4">${choice.description}</div>` : ''}
+        </button>
+      `;
+    }).join('');
+
+    modal.innerHTML = `
+      <div class="bg-gray-800 rounded-xl p-6 max-w-md w-full border-2 border-purple-500 shadow-2xl relative overflow-hidden">
+        <!-- 背景装飾 -->
+        <div class="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
+          <span class="text-9xl">📜</span>
+        </div>
+
+        <div class="relative z-10">
+          <h3 class="text-2xl font-bold text-center text-purple-300 mb-2 border-b border-gray-700 pb-4">${event.title}</h3>
+          
+          <div class="min-h-[100px] flex items-center justify-center my-4 text-gray-200 leading-relaxed text-sm">
+            ${event.description}
+          </div>
+
+          <div class="space-y-3 mt-6">
+            ${choicesHtml}
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // イベントハンドラ登録
+    modal.querySelectorAll('button').forEach(btn => {
+      btn.onclick = () => {
+        const index = parseInt(btn.dataset.index);
+        this.closeEventModal();
+        onChoice(index);
+      };
+    });
+  }
+
+  showTreatyModal(nation) {
+    this.showEventModal({
+      title: `${nation.name}との条約交渉`,
+      description: `現在の友好度: ${Math.floor(nation.relationWithPlayer)}\n条約を提案しますか？`,
+      choices: [
+        {
+          text: '不可侵条約 (500G)',
+          description: '1年間、相互不可侵を約束します (必要友好度: 20)',
+          effect: () => this.engine.signTreaty(nation.id, 'non_aggression')
+        },
+        {
+          text: '軍事同盟 (2000G)',
+          description: '2年間、強固な同盟を結びます (必要友好度: 60)',
+          effect: () => this.engine.signTreaty(nation.id, 'alliance')
+        },
+        {
+          text: 'キャンセル',
+          effect: () => { }
+        }
+      ]
+    });
+  }
+
+  showSpyModal(nation) {
+    this.showEventModal({
+      title: `${nation.name}への諜報活動`,
+      description: `対象国家: ${nation.name}\n諜報活動を行いますか？`,
+      choices: [
+        {
+          text: '情報収集 (500G)',
+          description: '戦力や経済状況を調査します (成功率: 高)',
+          effect: () => this.handleEspionage(nation.id, 'spy')
+        },
+        {
+          text: '破壊工作 (1000G)',
+          description: '軍事施設を妨害し戦力を削ぎます (成功率: 中)',
+          effect: () => this.handleEspionage(nation.id, 'sabotage')
+        },
+        {
+          text: '流言の流布 (800G)',
+          description: '国内を混乱させます (成功率: 中)',
+          effect: () => this.handleEspionage(nation.id, 'rumor')
+        },
+        {
+          text: 'キャンセル',
+          effect: () => { }
+        }
+      ]
+    });
+  }
+
+  handleEspionage(nationId, type) {
+    const result = this.engine.executeEspionage(type, nationId);
+    if (result.success) {
+      if (result.message) {
+        this.showEventModal({
+          title: '報告',
+          description: result.message,
+          choices: [{ text: '閉じる', effect: () => { } }]
+        });
+      } else {
+        this.showToast('作戦が成功しました', 'success');
+      }
+    } else {
+      this.showToast(result.message || '作戦に失敗しました', 'error');
+    }
+  }
+
+  closeEventModal() {
+    const modal = document.getElementById('event-modal');
+    if (modal) {
+      modal.remove();
+    }
   }
 
   // --- ログ ---
@@ -1208,10 +1648,206 @@ export class UIManager {
 
   triggerNewGame() {
     this.showConfirmModal('本当に新しいゲームを開始しますか？\n現在のデータは全て失われます。', () => {
-      // ローカルストレージを完全にクリアしてリロード
-      localStorage.clear();
-      location.reload();
+      // 周回ボーナス選択へ
+      this.showPrestigeModal();
     });
+  }
+
+  showPrestigeModal(onComplete = null) {
+    const prestige = this.engine.getPrestige();
+    const costs = this.engine.CONSTANTS.PRESTIGE_COSTS;
+
+    // モーダル作成
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black/90 flex items-center justify-center z-[210] animate-fade-in';
+
+    modal.innerHTML = `
+      <div class="bg-gray-800 rounded-xl p-6 m-4 max-w-md w-full border-2 border-yellow-500 shadow-2xl relative">
+        <h3 class="text-2xl font-bold text-center text-yellow-300 mb-2 border-b border-gray-700 pb-4">
+           New Game +
+        </h3>
+        <div class="text-center mb-4">
+           <div class="text-gray-400 text-sm">現在の周回ポイント</div>
+           <div class="text-3xl font-bold text-yellow-500" id="current-prestige">${prestige} pt</div>
+        </div>
+        
+        <div class="space-y-3 mb-6 bg-gray-900/50 p-4 rounded max-h-[300px] overflow-y-auto">
+           ${Object.entries(costs).map(([key, cost]) => `
+             <label class="flex justify-between items-center p-2 rounded hover:bg-gray-700 cursor-pointer border border-gray-700">
+               <div class="flex items-center gap-3">
+                 <input type="checkbox" value="${key}" data-cost="${cost}" class="w-4 h-4 rounded border-gray-500 bg-gray-700 text-yellow-500 focus:ring-yellow-500 prestige-check">
+                 <span class="text-sm font-bold text-gray-200">${this.getBonusName(key)}</span>
+               </div>
+               <span class="text-xs text-yellow-500 font-mono">${cost}pt</span>
+             </label>
+           `).join('')}
+        </div>
+
+        <div class="flex flex-col gap-2">
+           <div class="flex justify-between text-sm text-gray-400 px-2">
+             <span>合計コスト:</span>
+             <span id="total-cost" class="text-white">0 pt</span>
+           </div>
+           <button id="start-new-game-btn" class="w-full py-3 bg-yellow-600 hover:bg-yellow-500 text-white font-bold rounded shadow-lg transform active:scale-95 transition-all">
+             この設定で開始
+           </button>
+           <button id="cancel-new-game-btn" class="w-full py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 font-bold rounded text-sm">
+             キャンセル
+           </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // イベント処理
+    const checks = modal.querySelectorAll('.prestige-check');
+    const totalDisplay = modal.querySelector('#total-cost');
+    const currentDisplay = modal.querySelector('#current-prestige');
+    const startBtn = modal.querySelector('#start-new-game-btn');
+
+    const update = () => {
+      let total = 0;
+      checks.forEach(c => {
+        if (c.checked) total += parseInt(c.dataset.cost);
+      });
+      totalDisplay.textContent = `${total} pt`;
+
+      const remaining = prestige - total;
+      currentDisplay.textContent = `${remaining} pt`;
+
+      if (remaining < 0) {
+        currentDisplay.classList.add('text-red-500');
+        currentDisplay.classList.remove('text-yellow-500');
+        startBtn.disabled = true;
+        startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+      } else {
+        currentDisplay.classList.remove('text-red-500');
+        currentDisplay.classList.add('text-yellow-500');
+        startBtn.disabled = false;
+        startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+      }
+    };
+
+    checks.forEach(c => c.onchange = update);
+
+    modal.querySelector('#cancel-new-game-btn').onclick = () => modal.remove();
+
+    startBtn.onclick = () => {
+      const bonuses = {};
+      checks.forEach(c => {
+        if (c.checked) bonuses[c.value] = true;
+      });
+
+      const totalCost = Array.from(checks).filter(c => c.checked).reduce((sum, c) => sum + parseInt(c.dataset.cost), 0);
+      this.engine.savePrestige(-totalCost); // ポイント消費
+
+      modal.remove();
+      this.engine.state.isPaused = true;
+      window.isNewGameProcessing = true;
+
+      // newGame自体は呼び出さず、エンジン側で処理させるか、コールバックで処理する
+      this.engine.newGame(bonuses);
+
+      if (onComplete) {
+        onComplete();
+      } else {
+        this.showToast('データを初期化しています...', 'important');
+        setTimeout(() => window.location.reload(), 500);
+      }
+    };
+  }
+
+  showHomeScreen() {
+    this.els.mainContent.innerHTML = '';
+    // 全画面オーバーレイ
+    const container = document.createElement('div');
+    container.className = 'fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black animate-fade-in';
+    container.style.backgroundImage = 'url("assets/title_bg.png")';
+    container.style.backgroundSize = 'cover';
+    container.style.backgroundPosition = 'center';
+
+    container.innerHTML = `
+      <div class="absolute inset-0 bg-black/60"></div>
+      <div class="relative z-10 flex flex-col items-center">
+        <h1 class="text-5xl md:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-yellow-600 mb-8 drop-shadow-lg text-center leading-tight" style="font-family: serif; text-shadow: 0 4px 10px rgba(0,0,0,0.8);">
+          AXINODE<br>
+          <span class="text-2xl md:text-3xl text-gray-300 tracking-[0.3em] font-light">STRATEGY OF KINGS</span>
+        </h1>
+        
+        <div class="space-y-4 w-72 mt-8">
+           ${this.engine.hasSaveData() ? `
+             <button id="home-continue-btn" class="w-full py-3.5 bg-blue-900/80 hover:bg-blue-800 text-blue-100 font-bold rounded border border-blue-500 backdrop-blur-sm transition-all transform hover:scale-105 shadow-xl">
+               つづきから
+             </button>
+           ` : ''}
+           <button id="home-newgame-btn" class="w-full py-3.5 bg-yellow-900/80 hover:bg-yellow-800 text-yellow-100 font-bold rounded border border-yellow-500 backdrop-blur-sm transition-all transform hover:scale-105 shadow-xl">
+             はじめから
+           </button>
+        </div>
+        
+        <div class="mt-20 text-xs text-gray-500 text-center">
+           AXINODE Project ver 1.0.0<br>
+           Powered by Gemini 2.0
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(container);
+
+    const btnNew = container.querySelector('#home-newgame-btn');
+    const btnCont = container.querySelector('#home-continue-btn');
+
+    if (btnCont) {
+      btnCont.onclick = () => {
+        if (this.engine.loadGame()) {
+          container.style.transition = 'opacity 1s';
+          container.style.opacity = '0';
+          setTimeout(() => {
+            container.remove();
+            this.engine.startGameLoop();
+            this.engine.startAutosave(); // オートセーブ開始
+            console.log("オートセーブを有効化しました（1分間隔）");
+            this.initTabMenu(); // タブメニュー初期化（main.jsでやってないならここ）
+            const initialBtn = this.els.tabMenu.querySelector(`[data-tab="domestic"]`); // load処理でrenderされるがタブ選択が必要
+            if (initialBtn) initialBtn.click();
+            this.showToast('ゲームを再開します', 'success');
+          }, 1000);
+        } else {
+          this.showToast('セーブデータのロードに失敗しました', 'error');
+        }
+      };
+    }
+
+    btnNew.onclick = () => {
+      // 周回ボーナス選択画面へ
+      // onCompleteコールバックで画面を閉じてゲーム開始
+      this.showPrestigeModal(() => {
+        container.style.transition = 'opacity 1s';
+        container.style.opacity = '0';
+        setTimeout(() => {
+          container.remove();
+          this.engine.startGameLoop();
+          this.engine.startAutosave(); // オートセーブ開始
+          console.log("オートセーブを有効化しました");
+          this.initTabMenu();
+          // initTabMenu内でdomesticクリックされる
+          this.engine.addLog('新たな治世が始まりました', 'important');
+        }, 1000);
+      });
+    };
+  }
+
+  getBonusName(key) {
+    const names = {
+      initial_gold_500: '初期資金 +500G',
+      initial_gold_1000: '初期資金 +1000G',
+      initial_pop_5: '初期人口 +5人',
+      initial_soldier_10: '初期兵士 +10人',
+      research_speed_20: '研究速度 +20% (未実装)',
+      hero_rate_10: '英雄出現率 +10% (未実装)',
+    };
+    return names[key] || key;
   }
 
   showConfirmModal(message, onConfirm) {
@@ -1281,5 +1917,35 @@ export class UIManager {
 
     const initialBtn = this.els.tabMenu.querySelector(`[data-tab="domestic"]`);
     if (initialBtn) initialBtn.click();
+  }
+  // --- 兵種編成 ---
+  changeFormation(type, amount) {
+    const state = this.engine.state;
+    const m = state.military;
+
+    // 現在値
+    const current = m[type] || 0;
+
+    // 減らす場合
+    if (amount < 0) {
+      if (current + amount < 0) return; // 足りない
+      m[type] = current + amount;
+      this.render(state);
+      return;
+    }
+
+    // 増やす場合
+    const infantry = m.infantry || 0;
+    const archers = m.archers || 0;
+    const cavalry = m.cavalry || 0;
+    const assignedTotal = infantry + archers + cavalry;
+    const unassigned = Math.max(0, m.totalSoldiers - assignedTotal);
+
+    if (unassigned >= amount) {
+      m[type] = (m[type] || 0) + amount;
+      this.render(state);
+    } else {
+      this.showToast('割り当て可能な兵士がいません', 'error');
+    }
   }
 }

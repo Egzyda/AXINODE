@@ -15,41 +15,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const ui = new UIManager(engine);
   window.game.ui = ui;
 
-  // 3. UIの初期設定
-  ui.initTabMenu();
+  // 3. UIの初期設定（タブメニュー初期化などはshowHomeScreen後に実施）
 
   // 4. エンジンからの更新通知を受け取ってUIを描画
   engine.subscribe((state) => {
     ui.render(state);
   });
 
-  // 5. セーブデータがあれば自動ロード
-  if (engine.hasSaveData()) {
-    console.log("セーブデータが見つかりました。ロードを試みます...");
-    const loaded = engine.loadGame();
-    if (loaded) {
-      ui.showToast('セーブデータをロードしました', 'success');
-    }
-  }
-
-  // 6. 初回描画
-  ui.render(engine.state);
-
-  // 7. ゲームループ開始
-  engine.startGameLoop();
-
-  // 8. オートセーブの開始
-  engine.startAutosave();
-  console.log("オートセーブを有効化しました（1分間隔）");
-
-  // 開始時はポーズ状態
-  if (engine.state.isPaused && !engine.state.gameOver && !engine.state.victory) {
-    engine.addLog('「▶️ 再開」ボタンを押して時間を進めてください', 'important');
-  }
+  // 5. ホーム画面を表示して開始待機
+  ui.showHomeScreen();
 
   // 9. ページを離れる前にセーブ
   window.addEventListener('beforeunload', () => {
-    if (!engine.state.isPaused && !engine.state.gameOver) {
+    // ニューゲーム処理中は絶対にセーブしない
+    if (window.isNewGameProcessing) return;
+
+    // ゲーム開始前（lastTimeが0）や終了時はセーブしない
+    if (engine.lastTime > 0 && !engine.state.gameOver) {
       engine.saveGame();
     }
   });
@@ -133,6 +115,48 @@ document.addEventListener('DOMContentLoaded', () => {
     load: () => {
       engine.loadGame();
       ui.renderedTab = null;
+    },
+    testEvent: () => {
+      engine.triggerEvent({
+        title: 'デバッグイベント',
+        description: 'これはテスト用のイベントです。選択肢の動作を確認できます。',
+        choices: [
+          {
+            text: '選択肢A: ログ出力',
+            description: 'コンソールにログを出力します',
+            effect: (s) => console.log('DEBUG: Choice A selected')
+          },
+          {
+            text: '選択肢B: 資金獲得',
+            description: '資金を1000G獲得します',
+            effect: (s) => {
+              s.resources.gold += 1000;
+              engine.addLog('デバッグ効果: 資金+1000', 'important');
+            }
+          }
+        ]
+      });
+    },
+    // 外交イベント強制発動
+    triggerDiplomacy: (index = 0) => {
+      const nation = engine.state.aiNations[index];
+      if (nation) {
+        console.log(`${nation.name} の外交アクションを強制実行します`);
+        engine.processDiplomaticAction(nation);
+      } else {
+        console.log('指定された国家が見つかりません');
+      }
+    },
+    // 強制リセット（最終手段）
+    forceReset: () => {
+      console.log('強制リセットを実行します...');
+      localStorage.clear();
+      engine.deleteSave();
+      engine.state = engine.createInitialState();
+      ui.renderedTab = null;
+      ui.render(engine.state);
+      engine.notify();
+      ui.showToast('全てのデータを削除して初期化しました', 'success');
     },
     state: () => engine.state,
   };
