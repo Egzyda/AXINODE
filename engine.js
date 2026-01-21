@@ -357,12 +357,16 @@ export const Calcs = {
           infPower *= (1 + t.effect.value / 100);
         }
         // 騎兵（現時点では技術効果にないが、拡張性を考慮）
-        if (h.specialAbility.effect.type === 'combatPower') {
-          const bonus = 1 + h.specialAbility.effect.value / 100;
-          infPower *= bonus;
-          arcPower *= bonus;
-          cavPower *= bonus;
-        }
+      }
+    });
+
+    // 英雄の戦闘力ボーナス
+    state.heroes.forEach(h => {
+      if (h.specialAbility.effect.type === 'combatPower') {
+        const bonus = 1 + h.specialAbility.effect.value / 100;
+        infPower *= bonus;
+        arcPower *= bonus;
+        cavPower *= bonus;
       }
     });
 
@@ -1664,7 +1668,8 @@ export class GameEngine {
       },
       elapsed: 0,
       log: [],
-      result: null
+      result: null,
+      tactic: 'balanced' // default tactic
     };
 
     const battleType = isDefense ? '防衛戦' : '侵攻戦';
@@ -1672,6 +1677,19 @@ export class GameEngine {
     this.state.currentBattle.log.push(`戦闘開始: 味方${playerPower} vs 敵${enemyPower}`);
 
     return { success: true };
+  }
+
+  changeTactic(tactic) {
+    if (!this.state.currentBattle) return;
+    this.state.currentBattle.tactic = tactic;
+    let tacticName = '';
+    switch (tactic) {
+      case 'charge': tacticName = '突撃'; break;
+      case 'balanced': tacticName = '標準'; break;
+      case 'defend': tacticName = '堅守'; break;
+    }
+    this.state.currentBattle.log.push(`戦術変更: ${tacticName}`);
+    this.notify();
   }
 
   updateBattle(deltaSeconds) {
@@ -1694,8 +1712,17 @@ export class GameEngine {
         return;
       }
 
-      const playerDamage = Math.floor(battle.enemyForces.power * 0.08);
-      const enemyDamage = Math.floor(battle.playerForces.power * 0.10);
+      let playerDamage = Math.floor(battle.enemyForces.power * 0.08);
+      let enemyDamage = Math.floor(battle.playerForces.power * 0.10);
+
+      // 戦術補正
+      if (battle.tactic === 'charge') {
+        enemyDamage = Math.floor(enemyDamage * 1.3); // 与ダメ増
+        playerDamage = Math.floor(playerDamage * 1.2); // 被ダメ増
+      } else if (battle.tactic === 'defend') {
+        enemyDamage = Math.floor(enemyDamage * 0.7); // 与ダメ減
+        playerDamage = Math.floor(playerDamage * 0.5); // 被ダメ減
+      }
 
       battle.playerForces.current = Math.max(0, battle.playerForces.current - playerDamage);
       battle.enemyForces.current = Math.max(0, battle.enemyForces.current - enemyDamage);

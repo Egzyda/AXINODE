@@ -1327,6 +1327,19 @@ export class UIManager {
           <div class="text-lg text-gray-300">vs ${battle.enemyName}</div>
           <div class="text-2xl font-bold ${resultColor} mt-2">${resultText}</div>
         </div>
+        <div class="mb-4 bg-gray-900 rounded p-2 border border-gray-700 flex justify-center gap-2">
+           ${['charge', 'balanced', 'defend'].map(t => {
+      const labels = { charge: '突撃', balanced: '標準', defend: '堅守' };
+      const colors = { charge: 'red', balanced: 'blue', defend: 'green' };
+      const isActive = (battle.tactic || 'balanced') === t;
+      return `
+               <button onclick="window.game.engine.changeTactic('${t}')" 
+                 class="px-4 py-1 rounded text-xs font-bold border ${isActive ? `bg-${colors[t]}-600 border-${colors[t]}-400 text-white` : 'bg-gray-800 border-gray-600 text-gray-400 hover:bg-gray-700'}">
+                 ${labels[t]}
+               </button>
+             `;
+    }).join('')}
+        </div>
 
         <div class="grid grid-cols-2 gap-4 mb-4">
           <div class="bg-blue-900/30 p-3 rounded border border-blue-700">
@@ -1338,9 +1351,6 @@ export class UIManager {
             </div>
             <div class="mt-2 bg-gray-700 h-2 rounded">
               <div class="bg-blue-500 h-2 rounded" style="width: ${(battle.playerForces.current / battle.playerForces.initial) * 100}%"></div>
-            </div>
-          </div>
-
             </div>
           </div>
 
